@@ -1,0 +1,37 @@
+{
+  "name": "video-automation-studio",
+  "version": "0.1.0",
+  "description": "영상 자동화 스튜디오 — 레퍼런스 수집부터 릴스 업로드·댓글까지",
+  "main": "out/main/index.js",
+  "author": "llig",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "node scripts/rebuild-native.js && env -u ELECTRON_RUN_AS_NODE electron-vite dev",
+    "build": "electron-vite build",
+    "start": "env -u ELECTRON_RUN_AS_NODE electron-vite preview",
+    "dist": "electron-vite build && electron-builder --mac",
+    "postinstall": "node scripts/rebuild-native.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "postcss": "^8.5.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.17",
+    "vite": "^5.4.11"
+  },
+  "build": {
+    "appId": "com.llig.video-automation-studio",
+    "productName": "영상 자동화 스튜디오",
+    "directories": { "output": "release" },
+    "files": ["out/**/*", "resources/**/*"],
+    "mac": { "target": "dmg", "category": "public.app-category.productivity" }
+  }
+}

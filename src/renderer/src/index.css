@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --paper:#F5F6F8; --surface:#FFFFFF; --surface-2:#EEF0F4;
+  --ink:#16181D; --ink-soft:#3A3F4B; --muted:#6B7280; --line:#E1E4EA;
+  --accent:#4F46E5; --accent-soft:#EEEDFD;
+  --collect:#2563EB; --edit:#7C3AED; --upload:#0E9488; --comment:#D97706;
+  --good:#0E9488; --warn:#D97706; --crit:#DC2626;
+}
+:root[data-theme="dark"] {
+  --paper:#0F1115; --surface:#171A21; --surface-2:#1E222B;
+  --ink:#EDEFF3; --ink-soft:#C3C8D2; --muted:#8A93A3; --line:#282D38;
+  --accent:#8B85F5; --accent-soft:#211F3A;
+  --collect:#5B9BFF; --edit:#A78BFA; --upload:#2DD4BF; --comment:#FBBF24;
+  --good:#2DD4BF; --warn:#FBBF24; --crit:#F87171;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 드래그로 창 이동 가능한 영역 (macOS hiddenInset 타이틀바) */
+.drag { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+
+/* 스크롤바 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
+
+/* 부드러운 등장 */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.fade-up { animation: fadeUp .28s ease both; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .fade-up { animation: none; }
+  .spin { animation: none; }
+}
