@@ -1,4 +1,4 @@
-import { getSecret } from '../secrets.js'
+import { getSecret } from '../../secrets.js'
 import { GRAPH, graphErrorMessage, graphJson } from './graph.js'
 
 /** 숫자형 Meta/IG ID */
