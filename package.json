@@ -13,7 +13,8 @@
     "postinstall": "node scripts/rebuild-native.js"
   },
   "dependencies": {
-    "better-sqlite3": "^11.8.1"
+    "better-sqlite3": "^11.8.1",
+    "localtunnel": "^2.0.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -30,8 +31,16 @@
   "build": {
     "appId": "com.llig.video-automation-studio",
     "productName": "영상 자동화 스튜디오",
-    "directories": { "output": "release" },
-    "files": ["out/**/*", "resources/**/*"],
-    "mac": { "target": "dmg", "category": "public.app-category.productivity" }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "resources/**/*"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    }
   }
 }

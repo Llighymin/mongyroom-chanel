@@ -1,5 +1,5 @@
 import { BaseEngine } from '../base.js'
-import { GRAPH, graphJson, sleep } from './graph.js'
+import { graphBaseForToken, graphJson, sleep } from './graph.js'
 
 /**
  * 인스타그램 처리 대기 엔진
@@ -27,13 +27,15 @@ export class IgProcessEngine extends BaseEngine {
       detail: '처리 대기'
     })
 
+    const graphBase = graphBaseForToken(token)
+
     for (let i = 0; i < maxAttempts; i++) {
       this.assertNotAborted()
       await sleep(intervalMs)
       this.assertNotAborted()
 
       const stUrl =
-        `${GRAPH}/${containerId}?fields=status_code,status&access_token=${encodeURIComponent(token)}`
+        `${graphBase}/${containerId}?fields=status_code,status&access_token=${encodeURIComponent(token)}`
       const { body } = await graphJson(stUrl)
       const code = body.status_code
       const pct = Math.min(95, 5 + Math.round(((i + 1) / maxAttempts) * 90))

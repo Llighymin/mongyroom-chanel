@@ -14,6 +14,24 @@ let outPath = args[2]
 let width = Int(args.count > 3 ? args[3] : "1080") ?? 1080
 let height = Int(args.count > 4 ? args[4] : "1920") ?? 1920
 
+/// CSS/레거시 문자열·숫자 weight를 Int(100~900)로 통일
+func parseWeight(_ raw: Any?) -> Int {
+  if let n = raw as? Int { return min(900, max(100, n)) }
+  if let n = raw as? Double { return min(900, max(100, Int(n.rounded()))) }
+  if let s = raw as? String {
+    let map: [String: Int] = [
+      "thin": 100, "extralight": 200, "ultralight": 200,
+      "light": 300, "regular": 400, "normal": 400,
+      "medium": 500, "semibold": 600, "bold": 700,
+      "extrabold": 800, "heavy": 800, "black": 900
+    ]
+    if let v = map[s.lowercased()] { return v }
+    if let n = Int(s) { return min(900, max(100, n)) }
+    if let n = Double(s) { return min(900, max(100, Int(n.rounded()))) }
+  }
+  return 700
+}
+
 struct Item: Decodable {
   let text: String
   let x: Double
@@ -22,18 +40,57 @@ struct Item: Decodable {
   let color: String
   let font: String?
   let align: String?
-  let weight: String?
+  let weight: Int
+  let boxW: Double?
   let shadow: Bool?
   let stroke: Bool?
+
+  enum CodingKeys: String, CodingKey {
+    case text, x, y, size, color, font, align, weight, boxW, shadow, stroke
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    text = try c.decode(String.self, forKey: .text)
+    x = try c.decode(Double.self, forKey: .x)
+    y = try c.decode(Double.self, forKey: .y)
+    size = try c.decode(Double.self, forKey: .size)
+    color = try c.decode(String.self, forKey: .color)
+    font = try c.decodeIfPresent(String.self, forKey: .font)
+    align = try c.decodeIfPresent(String.self, forKey: .align)
+    boxW = try c.decodeIfPresent(Double.self, forKey: .boxW)
+    shadow = try c.decodeIfPresent(Bool.self, forKey: .shadow)
+    stroke = try c.decodeIfPresent(Bool.self, forKey: .stroke)
+
+    if let n = try? c.decode(Int.self, forKey: .weight) {
+      weight = parseWeight(n)
+    } else if let n = try? c.decode(Double.self, forKey: .weight) {
+      weight = parseWeight(n)
+    } else if let s = try? c.decode(String.self, forKey: .weight) {
+      weight = parseWeight(s)
+    } else {
+      weight = 700
+    }
+  }
 }
 
 struct Payload: Decodable {
   let items: [Item]
 }
 
-guard let data = try? Data(contentsOf: URL(fileURLWithPath: jsonPath)),
-      let payload = try? JSONDecoder().decode(Payload.self, from: data) else {
-  fputs("invalid json\n", stderr)
+let data: Data
+do {
+  data = try Data(contentsOf: URL(fileURLWithPath: jsonPath))
+} catch {
+  fputs("cannot read json: \(error)\n", stderr)
+  exit(2)
+}
+
+let payload: Payload
+do {
+  payload = try JSONDecoder().decode(Payload.self, from: data)
+} catch {
+  fputs("invalid json: \(error)\n", stderr)
   exit(2)
 }
 
@@ -70,16 +127,21 @@ NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 NSColor.clear.setFill()
 NSRect(x: 0, y: 0, width: width, height: height).fill()
 
-func fontWeight(_ raw: String?) -> NSFont.Weight {
+func fontWeight(_ raw: Int) -> NSFont.Weight {
   switch raw {
-  case "regular": return .regular
-  case "medium": return .medium
-  case "bold": return .bold
-  default: return .semibold
+  case ..<150: return .ultraLight
+  case 150..<250: return .thin
+  case 250..<350: return .light
+  case 350..<450: return .regular
+  case 450..<550: return .medium
+  case 550..<650: return .semibold
+  case 650..<750: return .bold
+  case 750..<850: return .heavy
+  default: return .black
   }
 }
 
-func pickFont(name: String?, size: CGFloat, weight: String?) -> NSFont {
+func pickFont(name: String?, size: CGFloat, weight: Int) -> NSFont {
   let w = fontWeight(weight)
   if let name, !name.isEmpty, let base = NSFont(name: name, size: size) {
     let desc = base.fontDescriptor.addingAttributes([
@@ -91,28 +153,42 @@ func pickFont(name: String?, size: CGFloat, weight: String?) -> NSFont {
 }
 
 for item in payload.items {
-  let t = item.text as NSString
+  let t = item.text.replacingOccurrences(of: "\n", with: " ")
+    .replacingOccurrences(of: "\r", with: " ")
+    .trimmingCharacters(in: .whitespacesAndNewlines) as NSString
   if t.length == 0 { continue }
-  let fontSize = max(14, item.size)
-  let paragraph = NSMutableParagraphStyle()
-  paragraph.alignment = .center
-  var attrs: [NSAttributedString.Key: Any] = [
-    .font: pickFont(name: item.font, size: fontSize, weight: item.weight),
-    .foregroundColor: color(from: item.color),
-    .paragraphStyle: paragraph
-  ]
-  if item.stroke ?? true {
-    attrs[.strokeColor] = NSColor(calibratedWhite: 0, alpha: 0.55)
-    attrs[.strokeWidth] = -3.0
+  let maxW = CGFloat(item.boxW ?? 0.88) * CGFloat(width)
+  var fontSize = CGFloat(max(14, item.size))
+
+  func makeAttrs(_ size: CGFloat) -> [NSAttributedString.Key: Any] {
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.alignment = .center
+    var a: [NSAttributedString.Key: Any] = [
+      .font: pickFont(name: item.font, size: size, weight: item.weight),
+      .foregroundColor: color(from: item.color),
+      .paragraphStyle: paragraph
+    ]
+    if item.stroke ?? true {
+      a[.strokeColor] = NSColor(calibratedWhite: 0, alpha: 0.55)
+      a[.strokeWidth] = -3.0
+    }
+    if item.shadow ?? true {
+      let sh = NSShadow()
+      sh.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.55)
+      sh.shadowBlurRadius = 3
+      sh.shadowOffset = NSSize(width: 0, height: -1)
+      a[.shadow] = sh
+    }
+    return a
   }
-  if item.shadow ?? true {
-    let sh = NSShadow()
-    sh.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.55)
-    sh.shadowBlurRadius = 3
-    sh.shadowOffset = NSSize(width: 0, height: -1)
-    attrs[.shadow] = sh
+
+  var attrs = makeAttrs(fontSize)
+  var size = t.size(withAttributes: attrs)
+  if size.width > maxW && size.width > 0 {
+    fontSize = max(12, fontSize * (maxW / size.width))
+    attrs = makeAttrs(fontSize)
+    size = t.size(withAttributes: attrs)
   }
-  let size = t.size(withAttributes: attrs)
   let cx = CGFloat(item.x) * CGFloat(width)
   let cyFromTop = CGFloat(item.y) * CGFloat(height)
   let x = cx - size.width / 2

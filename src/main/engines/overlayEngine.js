@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { REEL_W, REEL_H, fontMac } from '../../shared/editOptions.js'
+import { REEL_W, REEL_H, fontMac, normalizeWeight, clampBoxW, singleLineText } from '../../shared/editOptions.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -20,14 +20,15 @@ export async function renderTextOverlayPng(workDir, items) {
     jsonPath,
     JSON.stringify({
       items: list.map((t) => ({
-        text: String(t.text).slice(0, 120),
+        text: singleLineText(t.text),
         x: Number(t.x) || 0.5,
         y: Number(t.y) || 0.5,
         size: Number(t.size) || 36,
+        boxW: clampBoxW(t.boxW),
         color: t.color || '#FFFFFF',
         font: fontMac(t.font) || '',
         align: 'center',
-        weight: t.weight || 'semibold',
+        weight: normalizeWeight(t.weight, 800),
         shadow: t.shadow !== false,
         stroke: t.stroke !== false
       }))

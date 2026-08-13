@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useLayoutEffect, useRef, useState } from 'react'
 import { fontCss, weightCss } from '@shared/editOptions.js'
 
 const PREVIEW_W = 216
@@ -21,18 +21,19 @@ function fittedVideoRect(crop, srcW, srcH, frameW, frameH) {
   return { x: (frameW - w) / 2, y: 0, w, h }
 }
 
-function textStyle(layer, scale) {
+function textStyle(layer, scale, fit = 1) {
   const stroke = layer.stroke !== false
   const shadow = layer.shadow !== false
+  const fontSize = Math.max(8, (layer.size || 36) * scale * fit)
   return {
     color: layer.color || '#fff',
-    fontSize: Math.max(8, (layer.size || 36) * scale),
+    fontSize,
     fontFamily: fontCss(layer.font),
     fontWeight: weightCss(layer.weight),
     textAlign: 'center',
+    whiteSpace: 'nowrap',
     WebkitTextStroke: stroke ? '0.7px rgba(0,0,0,0.55)' : '0',
-    textShadow: shadow ? '0 1px 3px rgba(0,0,0,0.55)' : 'none',
-    whiteSpace: 'pre-wrap'
+    textShadow: shadow ? '0 1px 3px rgba(0,0,0,0.55)' : 'none'
   }
 }
 
@@ -64,6 +65,79 @@ function snapValue(v) {
   return Math.abs(v - 0.5) <= SNAP ? 0.5 : v
 }
 
+function clampBoxW(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return 0.88
+  return Math.min(1, Math.max(0.35, n))
+}
+
+function PreviewTextLayer({
+  layer,
+  scale,
+  selected,
+  disabled,
+  onPointerDown,
+  onResizeDown
+}) {
+  const textRef = useRef(null)
+  const [fit, setFit] = useState(1)
+  const boxW = clampBoxW(layer.boxW)
+  const boxPx = boxW * PREVIEW_W
+
+  useLayoutEffect(() => {
+    const el = textRef.current
+    if (!el) return
+    const natural = el.scrollWidth
+    if (!natural) {
+      setFit(1)
+      return
+    }
+    setFit(Math.min(1, boxPx / natural))
+  }, [layer.text, layer.size, layer.font, layer.weight, boxPx])
+
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      className={`absolute select-none touch-none ${selected ? 'z-20' : ''}`}
+      style={{
+        left: `${(layer.x || 0.5) * 100}%`,
+        top: `${(layer.y || 0.12) * 100}%`,
+        width: boxPx,
+        transform: 'translate(-50%, -50%)',
+        cursor: disabled ? 'default' : 'grab'
+      }}
+    >
+      <div
+        className={`relative px-1 py-0.5 ${
+          selected ? 'outline outline-2 outline-[var(--accent)] outline-offset-1 rounded-sm' : ''
+        }`}
+      >
+        <div
+          ref={textRef}
+          className="leading-tight mx-auto w-max max-w-full overflow-hidden"
+          style={textStyle(layer, scale, fit)}
+        >
+          {layer.text || '문구'}
+        </div>
+        {selected && !disabled && (
+          <>
+            <div
+              className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-2.5 h-5 rounded-sm bg-[var(--accent)] border border-white/80 cursor-ew-resize shadow"
+              title="영역 너비 조절"
+              onPointerDown={(e) => onResizeDown(e, 'left')}
+            />
+            <div
+              className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-2.5 h-5 rounded-sm bg-[var(--accent)] border border-white/80 cursor-ew-resize shadow"
+              title="영역 너비 조절"
+              onPointerDown={(e) => onResizeDown(e, 'right')}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /**
  * 9:16 릴스 미리보기 — 크롭·채우기·문구·워터마크를 실시간으로 보여 준다.
  */
@@ -75,10 +149,12 @@ export default function ReelPreview({
   selectedId,
   disabled,
   onSelect,
-  onMove
+  onMove,
+  onResize
 }) {
   const wrapRef = useRef(null)
   const drag = useRef(null)
+  const resizeDrag = useRef(null)
   const lastSnap = useRef({ v: false, h: false })
   const [guides, setGuides] = useState({ v: false, h: false, pulse: 0 })
   const fill = opts.fill_color || '#000000'
@@ -125,7 +201,23 @@ export default function ReelPreview({
     applySnap(p.x, p.y, false)
   }
 
+  const onResizePointerDown = (e, id, boxW, side) => {
+    if (disabled) return
+    e.stopPropagation()
+    onSelect?.(id)
+    resizeDrag.current = { id, startX: e.clientX, startBoxW: clampBoxW(boxW), side }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
   const onPointerMove = (e) => {
+    if (resizeDrag.current && !disabled) {
+      const dx = e.clientX - resizeDrag.current.startX
+      const delta = dx / PREVIEW_W
+      const sign = resizeDrag.current.side === 'left' ? -1 : 1
+      const next = clampBoxW(resizeDrag.current.startBoxW + delta * sign)
+      onResize?.(resizeDrag.current.id, next)
+      return
+    }
     if (!drag.current || disabled) return
     const p = toNorm(e.clientX, e.clientY)
     const snapped = applySnap(p.x, p.y, true)
@@ -134,6 +226,7 @@ export default function ReelPreview({
 
   const onPointerUp = () => {
     drag.current = null
+    resizeDrag.current = null
     setTimeout(() => setGuides({ v: false, h: false, pulse: 0 }), 180)
   }
 
@@ -144,7 +237,7 @@ export default function ReelPreview({
     <div className="flex flex-col gap-2">
       <p className="text-[13px] font-bold text-[var(--ink)]">실시간 미리보기</p>
       <p className="text-[12px] text-[var(--muted)] leading-relaxed">
-        릴스 화면입니다. 문구를 끌어 옮기면 가운데에서 선이 맞춰져요.
+        문구는 한 줄로 표시됩니다. 선택 후 좌·우 핸들을 끌어 영역 너비를 조절하세요.
       </p>
       <div
         ref={wrapRef}
@@ -152,6 +245,7 @@ export default function ReelPreview({
         style={{ width: PREVIEW_W, height: PREVIEW_H, background: fill, cursor: disabled ? 'default' : 'crosshair' }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
       >
         <div
           className="absolute overflow-hidden"
@@ -198,22 +292,15 @@ export default function ReelPreview({
         )}
 
         {texts.map((t) => (
-          <div
+          <PreviewTextLayer
             key={t.id}
+            layer={t}
+            scale={scale}
+            selected={selectedId === t.id}
+            disabled={disabled}
             onPointerDown={(e) => onPointerDown(e, t.id)}
-            className={`absolute max-w-[90%] px-0.5 leading-tight select-none ${
-              selectedId === t.id ? 'outline outline-2 outline-[var(--accent)] outline-offset-2' : ''
-            }`}
-            style={{
-              left: `${(t.x || 0.5) * 100}%`,
-              top: `${(t.y || 0.12) * 100}%`,
-              transform: 'translate(-50%, -50%)',
-              cursor: disabled ? 'default' : 'grab',
-              ...textStyle(t, scale)
-            }}
-          >
-            {t.text || '문구'}
-          </div>
+            onResizeDown={(e, side) => onResizePointerDown(e, t.id, t.boxW, side)}
+          />
         ))}
 
         {wm?.on && wm.kind === 'text' && (

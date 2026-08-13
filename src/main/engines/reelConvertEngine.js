@@ -55,7 +55,8 @@ export class ReelConvertEngine extends BaseEngine {
         color: opts.watermark.color || '#FFFFFF',
         font: opts.watermark.font,
         align: 'center',
-        weight: opts.watermark.weight || 'semibold',
+        weight: opts.watermark.weight ?? 600,
+        boxW: opts.watermark.boxW,
         shadow: opts.watermark.shadow !== false,
         stroke: opts.watermark.stroke !== false
       })

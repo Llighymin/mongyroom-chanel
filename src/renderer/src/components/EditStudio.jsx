@@ -5,7 +5,10 @@ import {
   FILL_PRESETS,
   WATERMARK_POSITIONS,
   FONT_OPTIONS,
-  WEIGHT_OPTIONS,
+  normalizeWeight,
+  weightLabel,
+  singleLineText,
+  clampBoxW,
   resolveEditOptions,
   channelWatermarkImage,
   newTextLayer
@@ -168,11 +171,12 @@ function CropPicker({ src, crop, disabled, onChange, onFrame, onSize }) {
   )
 }
 
-function StyleBar({ font, size, color, weight, shadow, stroke, disabled, onChange }) {
+function StyleBar({ font, size, color, weight, shadow, stroke, boxW, disabled, onChange, defaultWeight = 700 }) {
   const chip = (on) =>
     on
       ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
       : 'border-[var(--line)]'
+  const weightValue = normalizeWeight(weight, defaultWeight)
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2 items-end">
@@ -188,17 +192,24 @@ function StyleBar({ font, size, color, weight, shadow, stroke, disabled, onChang
             ))}
           </select>
         </Field>
-        <Field label="굵기">
-          <select
-            disabled={disabled}
-            value={weight || 'semibold'}
-            onChange={(e) => onChange({ weight: e.target.value })}
-            className="no-drag bg-[var(--paper)] border border-[var(--line)] rounded-[10px] px-2.5 py-2 text-sm text-[var(--ink)]"
-          >
-            {WEIGHT_OPTIONS.map((w) => (
-              <option key={w.id} value={w.id}>{w.label}</option>
-            ))}
-          </select>
+        <Field label={`굵기 · ${weightLabel(weightValue)}`}>
+          <div className="flex flex-col gap-1 min-w-[9rem]">
+            <input
+              type="range"
+              min="100"
+              max="900"
+              step="100"
+              disabled={disabled}
+              value={weightValue}
+              className="no-drag w-full"
+              onChange={(e) => onChange({ weight: Number(e.target.value) })}
+            />
+            <div className="flex justify-between text-[10px] text-[var(--muted)] px-0.5">
+              <span>100</span>
+              <span>500</span>
+              <span>900</span>
+            </div>
+          </div>
         </Field>
         <Field label={`크기 ${size}`}>
           <input
@@ -212,6 +223,20 @@ function StyleBar({ font, size, color, weight, shadow, stroke, disabled, onChang
             onChange={(e) => onChange({ size: Number(e.target.value) })}
           />
         </Field>
+        {boxW != null && (
+          <Field label={`영역 너비 ${Math.round(clampBoxW(boxW) * 100)}%`}>
+            <input
+              type="range"
+              min="35"
+              max="100"
+              step="1"
+              disabled={disabled}
+              value={Math.round(clampBoxW(boxW) * 100)}
+              className="no-drag w-32"
+              onChange={(e) => onChange({ boxW: Number(e.target.value) / 100 })}
+            />
+          </Field>
+        )}
         <Field label="색">
           <input
             type="color"
@@ -339,6 +364,8 @@ export default function EditStudio({
       texts: texts.map((x) => (x.id === id ? { ...x, ...patch } : x))
     })
   }
+
+  const resizeText = (id, boxW) => patchText(id, { boxW })
 
   const moveLayer = (id, x, y) => {
     if (id === 'watermark') setWm({ px: x, py: y, position: 'custom' })
@@ -488,7 +515,7 @@ export default function EditStudio({
                 value={t.text}
                 disabled={disabled}
                 placeholder="화면에 넣을 글"
-                onChange={(e) => patchText(t.id, { text: e.target.value })}
+                onChange={(e) => patchText(t.id, { text: singleLineText(e.target.value) })}
               />
               <Button
                 variant="danger"
@@ -507,9 +534,11 @@ export default function EditStudio({
               size={t.size}
               color={t.color}
               weight={t.weight}
+              boxW={t.boxW}
               shadow={t.shadow}
               stroke={t.stroke}
               disabled={disabled}
+              defaultWeight={800}
               onChange={(patch) => patchText(t.id, patch)}
             />
           </div>
@@ -591,6 +620,7 @@ export default function EditStudio({
                 shadow={opts.watermark.shadow}
                 stroke={opts.watermark.stroke}
                 disabled={disabled}
+                defaultWeight={600}
                 onChange={(patch) => setWm(patch)}
               />
             )}
@@ -643,6 +673,7 @@ export default function EditStudio({
           disabled={disabled}
           onSelect={setSelectedId}
           onMove={moveLayer}
+          onResize={resizeText}
         />
       </div>
       </div>

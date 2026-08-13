@@ -1,9 +1,25 @@
 import { getSecret } from '../../secrets.js'
-import { GRAPH, graphErrorMessage, graphJson } from './graph.js'
+import {
+  GRAPH,
+  GRAPH_IG,
+  graphApiMode,
+  graphErrorMessage,
+  graphJson,
+  isInstagramLoginToken
+} from './graph.js'
 
 /** 숫자형 Meta/IG ID */
 export function isNumericId(v) {
   return /^\d{5,30}$/.test(String(v || '').trim())
+}
+
+/** 토큰 문자열 정규화 (Bearer 접두사·따옴표·공백 제거) */
+export function normalizeAccessToken(raw) {
+  let token = String(raw || '').trim()
+  if (/^bearer\s+/i.test(token)) token = token.replace(/^bearer\s+/i, '')
+  token = token.replace(/^["']|["']$/g, '')
+  token = token.replace(/\s+/g, '')
+  return token
 }
 
 /**
@@ -14,13 +30,13 @@ export function normalizeMetaAccountInput(data = {}, { requireToken = true } = {
   const label = String(data.label || '').trim() || '인스타 계정'
   const ig_user_id = String(data.ig_user_id || '').trim()
   const page_id = String(data.page_id || '').trim()
-  const token = String(data.token || '').trim()
+  const token = normalizeAccessToken(data.token)
 
   const errors = []
   if (requireToken && !token) {
     errors.push('액세스 토큰을 입력해 주세요.')
   }
-  if (!ig_user_id && !page_id) {
+  if (!ig_user_id && !page_id && !isInstagramLoginToken(token)) {
     errors.push('인스타그램 사용자 ID 또는 페이스북 페이지 ID가 필요해요.')
   }
   if (ig_user_id && !isNumericId(ig_user_id)) {
@@ -44,6 +60,7 @@ export async function resolveIgUserIdFromPage(pageId, token) {
   url.searchParams.set('access_token', token)
   const { res, body } = await graphJson(url.toString())
   if (!res.ok) {
+    console.warn('[meta-verify] page lookup failed', { pageId, error: body?.error })
     throw new Error(graphErrorMessage(body, '페이지 정보를 읽지 못했어요.'))
   }
   const igId = body?.instagram_business_account?.id
@@ -53,6 +70,146 @@ export async function resolveIgUserIdFromPage(pageId, token) {
   return {
     ig_user_id: String(igId),
     username: body.instagram_business_account.username || ''
+  }
+}
+
+/**
+ * 입력 ID가 페이지 ID인지 확인하고, 페이지면 연결된 IG ID를 반환한다.
+ */
+async function probePageLinkedIg(id, token) {
+  const url = new URL(`${GRAPH}/${id}`)
+  url.searchParams.set('fields', 'instagram_business_account{id,username}')
+  url.searchParams.set('access_token', token)
+  const { res, body } = await graphJson(url.toString())
+  if (!res.ok || !body?.instagram_business_account?.id) return null
+  return {
+    page_id: String(id),
+    ig_user_id: String(body.instagram_business_account.id),
+    username: body.instagram_business_account.username || ''
+  }
+}
+
+/**
+ * 사용자 토큰으로 /me/accounts를 조회해 페이지 액세스 토큰·IG ID를 맞춘다.
+ * 릴스 업로드는 페이지 토큰이 필요한 경우가 많다.
+ */
+export async function resolvePageCredentials({ pageId = '', igUserId = '', token }) {
+  const url = new URL(`${GRAPH}/me/accounts`)
+  url.searchParams.set('fields', 'id,name,access_token,instagram_business_account{id,username}')
+  url.searchParams.set('limit', '100')
+  url.searchParams.set('access_token', token)
+  const { res, body } = await graphJson(url.toString())
+
+  if (!res.ok) {
+    console.warn('[meta-verify] /me/accounts failed', { error: body?.error })
+    return {
+      token,
+      page_id: pageId,
+      ig_user_id: igUserId,
+      username: '',
+      pageTokenResolved: false
+    }
+  }
+
+  const pages = body?.data || []
+  if (!pages.length) {
+    return {
+      token,
+      page_id: pageId,
+      ig_user_id: igUserId,
+      username: '',
+      pageTokenResolved: false
+    }
+  }
+
+  let match = null
+  if (pageId) {
+    match = pages.find((p) => String(p.id) === String(pageId))
+  }
+  if (!match && igUserId) {
+    match = pages.find(
+      (p) => String(p.instagram_business_account?.id) === String(igUserId)
+    )
+  }
+  if (!match && pages.length === 1 && pages[0].instagram_business_account?.id) {
+    match = pages[0]
+  }
+
+  if (!match?.access_token) {
+    return {
+      token,
+      page_id: pageId,
+      ig_user_id: igUserId,
+      username: '',
+      pageTokenResolved: false
+    }
+  }
+
+  const ig = match.instagram_business_account
+  return {
+    token: match.access_token,
+    page_id: String(match.id),
+    ig_user_id: ig?.id ? String(ig.id) : igUserId,
+    username: ig?.username || '',
+    pageTokenResolved: true
+  }
+}
+
+/** Instagram Login(IGAA) 토큰 검증 — graph.instagram.com */
+async function verifyInstagramLoginCredentials({ ig_user_id = '', token }) {
+  const meUrl = new URL(`${GRAPH_IG}/me`)
+  meUrl.searchParams.set('fields', 'id,username,user_id')
+  meUrl.searchParams.set('access_token', token)
+  const { res, body } = await graphJson(meUrl.toString())
+  if (!res.ok || !body?.user_id) {
+    console.warn('[meta-verify] instagram /me failed', { error: body?.error })
+    return {
+      ok: false,
+      message: graphErrorMessage(body, 'Instagram 계정을 확인하지 못했어요. IGAA 토큰을 확인해 주세요.'),
+      ig_user_id,
+      page_id: ''
+    }
+  }
+
+  const igUserId = String(body.user_id)
+  const username = body.username || ''
+  if (ig_user_id && String(ig_user_id) !== igUserId) {
+    return {
+      ok: false,
+      message: `입력한 IG ID(${ig_user_id})와 토큰 계정(@${username}, ${igUserId})이 달라요.`,
+      ig_user_id,
+      page_id: ''
+    }
+  }
+
+  const limitUrl = new URL(`${GRAPH_IG}/${igUserId}/content_publishing_limit`)
+  limitUrl.searchParams.set('access_token', token)
+  const { res: limitRes, body: limitBody } = await graphJson(limitUrl.toString())
+  if (!limitRes.ok) {
+    console.warn('[meta-verify] instagram publish limit failed', { error: limitBody?.error })
+    return {
+      ok: false,
+      message: graphErrorMessage(
+        limitBody,
+        '릴스 게시 권한을 확인하지 못했어요. instagram_business_content_publish 권한이 있는지 확인해 주세요.'
+      ),
+      ig_user_id: igUserId,
+      page_id: ''
+    }
+  }
+
+  return {
+    ok: true,
+    message: `@${username} 계정 연결이 확인됐어요. (Instagram Login)`,
+    ig_user_id: igUserId,
+    page_id: '',
+    username,
+    token,
+    api_mode: 'instagram_login',
+    exchanged: false,
+    pageTokenResolved: false,
+    permissions: [],
+    permissionWarning: ''
   }
 }
 
@@ -71,7 +228,7 @@ export async function maybeExchangeLongLivedToken(shortToken) {
 
   const { res, body } = await graphJson(url.toString())
   if (!res.ok || !body.access_token) {
-    // 이미 장기 토큰이거나 교환 불필요면 원본 유지
+    console.warn('[meta-verify] token exchange skipped', { error: body?.error })
     return { token: shortToken, exchanged: false, warning: graphErrorMessage(body, '') || null }
   }
   return {
@@ -83,9 +240,10 @@ export async function maybeExchangeLongLivedToken(shortToken) {
 
 /**
  * 업로드 가능 여부 검증:
- * - 토큰으로 IG 계정 조회
- * - (선택) 페이지 ↔ IG 연결 확인
- * - (선택) debug_token으로 권한 힌트
+ * - 토큰 정규화·(선택) 장기 토큰 교환
+ * - 페이지 ID ↔ IG ID 자동 판별
+ * - /me/accounts로 페이지 액세스 토큰 확보
+ * - IG 계정 조회 및 페이지 연결 확인
  */
 export async function verifyMetaUploadCredentials({
   ig_user_id = '',
@@ -103,8 +261,14 @@ export async function verifyMetaUploadCredentials({
   let igUserId = normalized.value.ig_user_id
   let pageId = normalized.value.page_id
   let accessToken = normalized.value.token
+
+  if (isInstagramLoginToken(accessToken)) {
+    return verifyInstagramLoginCredentials({ ig_user_id: igUserId, token: accessToken })
+  }
+
   let username = ''
   let exchanged = false
+  let pageTokenResolved = false
 
   try {
     const exchangedRes = await maybeExchangeLongLivedToken(accessToken)
@@ -114,10 +278,44 @@ export async function verifyMetaUploadCredentials({
     /* 교환 실패해도 원본 토큰으로 계속 */
   }
 
+  // IG ID 칸에 페이지 ID를 넣은 경우 자동 보정
+  if (igUserId && !pageId) {
+    const asPage = await probePageLinkedIg(igUserId, accessToken)
+    if (asPage) {
+      pageId = asPage.page_id
+      igUserId = asPage.ig_user_id
+      username = asPage.username
+    }
+  }
+
   if (!igUserId && pageId) {
     const resolved = await resolveIgUserIdFromPage(pageId, accessToken)
     igUserId = resolved.ig_user_id
     username = resolved.username
+  }
+
+  // 사용자 토큰 → 페이지 토큰으로 맞춤 (가능할 때)
+  const pageCreds = await resolvePageCredentials({
+    pageId,
+    igUserId,
+    token: accessToken
+  })
+  if (pageCreds.pageTokenResolved) {
+    accessToken = pageCreds.token
+    pageTokenResolved = true
+    if (pageCreds.page_id) pageId = pageCreds.page_id
+    if (pageCreds.ig_user_id) igUserId = pageCreds.ig_user_id
+    if (pageCreds.username) username = pageCreds.username
+  }
+
+  if (!igUserId) {
+    return {
+      ok: false,
+      message:
+        '인스타그램 사용자 ID를 확인하지 못했어요. 페이지 ID를 입력하거나, Graph API 탐색기에서 IG User ID를 확인해 주세요.',
+      ig_user_id: igUserId,
+      page_id: pageId
+    }
   }
 
   // IG 계정 확인
@@ -126,9 +324,13 @@ export async function verifyMetaUploadCredentials({
   igUrl.searchParams.set('access_token', accessToken)
   const { res: igRes, body: igBody } = await graphJson(igUrl.toString())
   if (!igRes.ok || !igBody?.id) {
+    console.warn('[meta-verify] IG lookup failed', { igUserId, error: igBody?.error })
     return {
       ok: false,
-      message: graphErrorMessage(igBody, '인스타그램 계정을 확인하지 못했어요. IG User ID와 토큰을 확인해 주세요.'),
+      message: graphErrorMessage(
+        igBody,
+        '인스타그램 계정을 확인하지 못했어요. IG User ID와 페이지 액세스 토큰을 확인해 주세요.'
+      ),
       ig_user_id: igUserId,
       page_id: pageId
     }
@@ -142,12 +344,13 @@ export async function verifyMetaUploadCredentials({
       if (String(linked.ig_user_id) !== String(igUserId)) {
         return {
           ok: false,
-          message: `페이지에 연결된 IG 계정(${linked.ig_user_id})과 입력한 IG ID(${igUserId})가 달라요.`,
+          message: `페이지에 연결된 IG 계정(@${linked.username || linked.ig_user_id})과 입력한 IG ID(${igUserId})가 달라요.`,
           ig_user_id: igUserId,
           page_id: pageId,
           username
         }
       }
+      if (!username && linked.username) username = linked.username
     } catch (e) {
       return {
         ok: false,
@@ -159,7 +362,7 @@ export async function verifyMetaUploadCredentials({
     }
   }
 
-  // 권한 힌트 (앱 ID/시크릿이 있을 때만)
+  // 권한 힌트 (앱 ID/시크릿이 있을 때만, 실패해도 등록은 허용)
   let permissions = []
   let permissionWarning = ''
   try {
@@ -186,16 +389,34 @@ export async function verifyMetaUploadCredentials({
     /* ignore */
   }
 
+  if (!pageTokenResolved && !pageId) {
+    permissionWarning = [
+      permissionWarning,
+      '페이지 ID 없이 등록했어요. 가능하면 페이지 ID를 함께 넣거나 Graph API 탐색기에서 페이지 액세스 토큰을 사용해 주세요.'
+    ]
+      .filter(Boolean)
+      .join(' ')
+  }
+
+  const tokenNote = [
+    exchanged ? '장기 토큰으로 변환됨' : '',
+    pageTokenResolved ? '페이지 토큰으로 맞춤' : ''
+  ]
+    .filter(Boolean)
+    .join(', ')
+
   return {
     ok: true,
     message: username
-      ? `@${username} 계정 연결이 확인됐어요.${exchanged ? ' (장기 토큰으로 변환됨)' : ''}`
-      : `인스타그램 계정 연결이 확인됐어요.${exchanged ? ' (장기 토큰으로 변환됨)' : ''}`,
+      ? `@${username} 계정 연결이 확인됐어요.${tokenNote ? ` (${tokenNote})` : ''}`
+      : `인스타그램 계정 연결이 확인됐어요.${tokenNote ? ` (${tokenNote})` : ''}`,
     ig_user_id: String(igBody.id),
     page_id: pageId,
     username,
     token: accessToken,
+    api_mode: graphApiMode(accessToken),
     exchanged,
+    pageTokenResolved,
     permissions,
     permissionWarning
   }

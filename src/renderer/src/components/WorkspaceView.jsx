@@ -499,11 +499,17 @@ function AccountsCard({ workspaceId, accounts, reload, toast }) {
     })
   }
 
+  const isInstagramLoginToken = (t) => /^IG/i.test(String(t || '').trim())
+
   const create = async () => {
     if (!form.label.trim()) return toast('계정 이름을 입력해 주세요.', 'crit')
     if (!form.token.trim()) return toast('액세스 토큰을 입력해 주세요.', 'crit')
-    if (!form.ig_user_id.trim() && !form.page_id.trim()) {
-      return toast('인스타그램 사용자 ID 또는 페이스북 페이지 ID를 입력해 주세요.', 'crit')
+    if (
+      !form.ig_user_id.trim() &&
+      !form.page_id.trim() &&
+      !isInstagramLoginToken(form.token)
+    ) {
+      return toast('인스타그램 사용자 ID, 페이지 ID, 또는 Instagram Login(IGAA) 토큰을 입력해 주세요.', 'crit')
     }
     setBusy(true)
     try {
@@ -613,10 +619,10 @@ function AccountsCard({ workspaceId, accounts, reload, toast }) {
       </div>
 
       <p className="text-[12.5px] text-[var(--muted)] -mt-2 leading-relaxed">
-        업로드에 필요한 값은 <b className="text-[var(--ink-soft)]">액세스 토큰</b>과
-        <b className="text-[var(--ink-soft)]"> 인스타그램 사용자 ID</b>입니다.
-        페이지 ID만 있으면 연결된 IG ID를 자동으로 찾을 수 있어요.
-        앱 설정의 메타 앱 ID/시크릿이 있으면 토큰을 장기 토큰으로 바꿔 저장합니다.
+        <b className="text-[var(--ink-soft)]">Instagram Login 토큰(IGAA…)</b> 또는
+        <b className="text-[var(--ink-soft)]"> Facebook 페이지 토큰(EAAG…)</b>을 넣을 수 있어요.
+        IGAA 토큰은 IG User ID 없이도 자동 확인됩니다.
+        EAAG 토큰은 페이지 ID만 넣어도 IG ID를 찾습니다.
       </p>
 
       {accounts.length === 0 && !formOpen && (
@@ -675,7 +681,7 @@ function AccountsCard({ workspaceId, accounts, reload, toast }) {
             </Field>
             <Field
               label="액세스 토큰"
-              hint={editingId ? '비워 두면 기존 토큰을 유지합니다. 키체인에 암호화 저장됩니다.' : '페이지 액세스 토큰 권장 · 키체인에 암호화 저장'}
+              hint={editingId ? '비워 두면 기존 토큰을 유지합니다. 키체인에 암호화 저장됩니다.' : 'IGAA…(Instagram Login) 또는 EAAG…(페이지 토큰) · 키체인 저장'}
             >
               <TextInput
                 type="password"
@@ -686,7 +692,7 @@ function AccountsCard({ workspaceId, accounts, reload, toast }) {
             </Field>
             <Field
               label="인스타그램 사용자 ID"
-              hint="숫자형 IG User ID (비즈니스 계정). @핸들이 아닙니다."
+              hint="숫자형 IG User ID (1784…). IGAA 토큰이면 비워도 자동 조회됩니다."
             >
               <TextInput
                 value={form.ig_user_id}

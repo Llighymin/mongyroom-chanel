@@ -20,18 +20,47 @@ export const FONT_OPTIONS = [
 ]
 
 export const WEIGHT_OPTIONS = [
-  { id: 'regular', label: '보통', css: 400 },
-  { id: 'medium', label: '중간', css: 500 },
-  { id: 'semibold', label: '세미볼드', css: 600 },
-  { id: 'bold', label: '굵게', css: 700 }
+  { id: 'thin', label: '가늘게 (100)', css: 100 },
+  { id: 'extralight', label: '아주 가늘게 (200)', css: 200 },
+  { id: 'light', label: '얇게 (300)', css: 300 },
+  { id: 'regular', label: '보통 (400)', css: 400 },
+  { id: 'medium', label: '중간 (500)', css: 500 },
+  { id: 'semibold', label: '세미볼드 (600)', css: 600 },
+  { id: 'bold', label: '굵게 (700)', css: 700 },
+  { id: 'extrabold', label: '아주 굵게 (800)', css: 800 },
+  { id: 'black', label: '최대 (900)', css: 900 }
 ]
+
+const WEIGHT_BY_ID = Object.fromEntries(WEIGHT_OPTIONS.map((w) => [w.id, w.css]))
+const WEIGHT_BY_CSS = Object.fromEntries(WEIGHT_OPTIONS.map((w) => [w.css, w]))
+
+/** 문자열 id·숫자(100~900) 모두 허용 */
+export function normalizeWeight(value, fallback = 700) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const snapped = Math.round(value / 100) * 100
+    return Math.min(900, Math.max(100, snapped))
+  }
+  const s = String(value || '').trim()
+  if (WEIGHT_BY_ID[s] != null) return WEIGHT_BY_ID[s]
+  const n = Number(s)
+  if (Number.isFinite(n)) {
+    const snapped = Math.round(n / 100) * 100
+    return Math.min(900, Math.max(100, snapped))
+  }
+  return normalizeWeight(fallback, 700)
+}
+
+export function weightCss(value) {
+  return normalizeWeight(value, 700)
+}
 
 export function fontCss(id) {
   return FONT_OPTIONS.find((f) => f.id === id)?.css || FONT_OPTIONS[0].css
 }
 
-export function weightCss(id) {
-  return WEIGHT_OPTIONS.find((w) => w.id === id)?.css || 600
+export function weightLabel(value) {
+  const css = weightCss(value)
+  return WEIGHT_BY_CSS[css]?.label || `굵기 ${css}`
 }
 
 export function fontMac(id) {
@@ -75,6 +104,17 @@ export function defaultEditOptions(workspaceName = 'Studio') {
     },
     texts: []
   }
+}
+
+/** 줄바꿈·연속 공백을 한 줄 문구로 정리 */
+export function singleLineText(value, maxLen = 120) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLen)
+}
+
+export function clampBoxW(v, fallback = 0.88) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(1, Math.max(0.35, n))
 }
 
 function clamp01(n, fallback = 0) {
@@ -137,7 +177,7 @@ export function normalizeEditOptions(raw = {}, workspaceName = 'Studio') {
     font: FONT_OPTIONS.some((f) => f.id === wmIn.font) ? wmIn.font : base.watermark.font,
     align: 'center',
     color: hexColor(wmIn.color, base.watermark.color),
-    weight: WEIGHT_OPTIONS.some((w) => w.id === wmIn.weight) ? wmIn.weight : base.watermark.weight,
+    weight: normalizeWeight(wmIn.weight, 600),
     shadow: wmIn.shadow !== false,
     stroke: wmIn.stroke !== false
   }
@@ -151,14 +191,15 @@ export function normalizeEditOptions(raw = {}, workspaceName = 'Studio') {
     ? raw.texts
         .map((t, i) => ({
           id: String(t?.id || `t${i + 1}`),
-          text: String(t?.text || '').slice(0, 120),
+          text: singleLineText(t?.text),
           x: clamp01(t?.x, 0.5),
           y: clamp01(t?.y, 0.12 + i * 0.08),
           size: Math.min(96, Math.max(16, Number(t?.size) || 36)),
+          boxW: clampBoxW(t?.boxW),
           color: hexColor(t?.color, '#FFFFFF'),
           font: FONT_OPTIONS.some((f) => f.id === t?.font) ? t.font : 'apple-sd',
           align: 'center',
-          weight: WEIGHT_OPTIONS.some((w) => w.id === t?.weight) ? t.weight : 'semibold',
+          weight: normalizeWeight(t?.weight, 800),
           shadow: t?.shadow !== false,
           stroke: t?.stroke !== false
         }))
@@ -267,10 +308,11 @@ export function newTextLayer(index = 0) {
     x: 0.5,
     y: Math.min(0.85, 0.1 + index * 0.08),
     size: 36,
+    boxW: 0.88,
     color: '#FFFFFF',
     font: 'apple-sd',
     align: 'center',
-    weight: 'semibold',
+    weight: 800,
     shadow: true,
     stroke: true
   }

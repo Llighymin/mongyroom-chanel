@@ -1,5 +1,5 @@
 import { BaseEngine } from '../base.js'
-import { GRAPH, graphErrorMessage, graphJson } from './graph.js'
+import { graphBaseForToken, graphErrorMessage, graphJson } from './graph.js'
 
 /**
  * 인스타그램 릴스 게시 엔진
@@ -26,7 +26,9 @@ export class IgPublishEngine extends BaseEngine {
     })
     this.assertNotAborted()
 
-    const pubUrl = new URL(`${GRAPH}/${igUserId}/media_publish`)
+    const graphBase = graphBaseForToken(token)
+
+    const pubUrl = new URL(`${graphBase}/${igUserId}/media_publish`)
     pubUrl.searchParams.set('creation_id', containerId)
     pubUrl.searchParams.set('access_token', token)
 
