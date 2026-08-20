@@ -1,7 +1,7 @@
 import { accessSync, constants } from 'fs'
 import { execFile, execSync } from 'child_process'
 import { promisify } from 'util'
-import { join } from 'path'
+import { dirname, join } from 'path'
 
 const execFileAsync = promisify(execFile)
 
@@ -52,6 +52,19 @@ export function resolveTools() {
     ffmpeg: findBinary('ffmpeg'),
     ffprobe: findBinary('ffprobe')
   }
+}
+
+/** yt-dlp가 GUI 앱 PATH에서도 ffmpeg를 찾도록 인자·환경변수를 만든다. */
+export function ytdlpMergeOptions() {
+  const { ffmpeg, ytdlp } = resolveTools()
+  const args = []
+  if (ffmpeg) args.push('--ffmpeg-location', ffmpeg)
+
+  const sep = process.platform === 'win32' ? ';' : ':'
+  const dirs = [...new Set([ffmpeg, ytdlp].filter(Boolean).map((bin) => dirname(bin)))]
+  const current = process.env.PATH || ''
+  const PATH = dirs.length ? `${dirs.join(sep)}${sep}${current}` : current
+  return { args, env: { ...process.env, PATH } }
 }
 
 export async function toolsStatus() {

@@ -22,10 +22,27 @@ export function resolveAssetPath(workspaceId, filename) {
   return existsSync(filePath) ? filePath : null
 }
 
-export async function pickAndStoreImage(workspaceId) {
+export function overlayPreviewMap(workspaceId, images) {
+  const out = {}
+  if (!workspaceId || !Array.isArray(images)) return out
+  for (const im of images) {
+    if (!im?.id) continue
+    const resolved = resolveWatermarkImagePath(workspaceId, im)
+    if (!resolved) continue
+    const fname = basename(resolved)
+    try {
+      out[im.id] = assetUrlFor(workspaceId, fname, String(statSync(resolved).mtimeMs))
+    } catch {
+      out[im.id] = assetUrlFor(workspaceId, fname)
+    }
+  }
+  return out
+}
+
+export async function pickAndStoreImage(workspaceId, { title } = {}) {
   const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
   const res = await dialog.showOpenDialog(win || undefined, {
-    title: '워터마크 이미지 선택',
+    title: title || '이미지 선택',
     properties: ['openFile'],
     filters: [{ name: '이미지', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
   })

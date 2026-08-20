@@ -3,6 +3,28 @@ import Sidebar from './components/Sidebar.jsx'
 import WorkspaceView from './components/WorkspaceView.jsx'
 import SettingsView from './components/SettingsView.jsx'
 import { ToastProvider, Icon, Button } from './components/ui.jsx'
+import { setCustomFonts } from '@shared/editOptions.js'
+
+function CustomFontFaces() {
+  const [css, setCss] = useState('')
+  useEffect(() => {
+    const load = async () => {
+      if (!window.api?.fonts?.list) return
+      const list = await window.api.fonts.list()
+      setCustomFonts(list || [])
+      setCss(
+        (list || [])
+          .map((f) => `@font-face{font-family:"${f.cssFamily}";src:url("${f.url}");font-display:swap;}`)
+          .join('\n')
+      )
+    }
+    load()
+    window.addEventListener('studio-fonts-changed', load)
+    return () => window.removeEventListener('studio-fonts-changed', load)
+  }, [])
+  if (!css) return null
+  return <style>{css}</style>
+}
 
 function Shell() {
   const [workspaces, setWorkspaces] = useState([])
@@ -100,6 +122,7 @@ function Welcome({ onCreate }) {
 export default function App() {
   return (
     <ToastProvider>
+      <CustomFontFaces />
       <Shell />
     </ToastProvider>
   )

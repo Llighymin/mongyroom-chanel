@@ -37,6 +37,9 @@ export class ReelConvertEngine extends BaseEngine {
     const opts = normalizeEditOptions(input.editOptions || input)
 
     const probed = await probeEngine.run({ sourcePath }, { signal: this._signal })
+    if (!probed.hasAudio) {
+      throw new Error('원본 영상에 소리가 없어요. 다시 편집을 실행해 내려받거나, 오디오가 있는 파일을 사용해 주세요.')
+    }
     const sourceDuration = Number(probed.duration) > 0 ? Number(probed.duration) : 0
     // 원본보다 길게 만들지 않고, 릴스 한도(90초)만 상한으로 둔다
     const outDuration = sourceDuration > 0
@@ -56,6 +59,7 @@ export class ReelConvertEngine extends BaseEngine {
         font: opts.watermark.font,
         align: 'center',
         weight: opts.watermark.weight ?? 600,
+        tracking: opts.watermark.tracking ?? 0,
         boxW: opts.watermark.boxW,
         shadow: opts.watermark.shadow !== false,
         stroke: opts.watermark.stroke !== false
@@ -63,7 +67,23 @@ export class ReelConvertEngine extends BaseEngine {
     }
 
     this.progress(8, '릴스 비율로 편집하고 있어요…', { detail: '레이어 준비' })
-    const textPng = await renderTextOverlayPng(dir, textItems)
+
+    const overlayImages = []
+    for (const [i, im] of (opts.images || []).entries()) {
+      const resolved = resolveWatermarkImagePath(workspaceId, im)
+      if (!resolved) {
+        throw new Error(`이미지 레이어를 찾지 못했어요 (${im.image_name || i + 1}). 다시 올려 주세요.`)
+      }
+      const local = join(dir, `ov${i}${(basename(resolved).match(/\.[^.]+$/) || ['.png'])[0]}`)
+      try {
+        copyFileSync(resolved, local)
+        overlayImages.push({ ...im, path: local })
+      } catch {
+        overlayImages.push({ ...im, path: resolved })
+      }
+    }
+
+    const textPng = await renderTextOverlayPng(dir, textItems, overlayImages)
 
     let imageWm = null
     if (opts.watermark.on && opts.watermark.kind === 'image') {
@@ -111,7 +131,7 @@ export class ReelConvertEngine extends BaseEngine {
       ...inputs,
       '-filter_complex', filter,
       '-map', `[${last}]`,
-      '-map', '0:a?',
+      '-map', '0:a:0',
       '-t', durationArg,
       '-shortest',
       '-c:v', 'libx264',

@@ -56,7 +56,80 @@ export default function SettingsView() {
         <div className="h-4" />
         <KeyRow k="meta_app_secret" name="메타 앱 시크릿" saved={status.meta_app_secret} placeholder="••••••••" onChanged={load} />
       </Card>
+
+      <FontLibraryCard />
     </div>
+  )
+}
+
+function FontLibraryCard() {
+  const toast = useToast()
+  const [fonts, setFonts] = useState([])
+  const [busy, setBusy] = useState(false)
+
+  const load = async () => {
+    if (!window.api?.fonts?.list) return
+    setFonts(await window.api.fonts.list())
+  }
+  useEffect(() => { load() }, [])
+
+  const notify = () => window.dispatchEvent(new Event('studio-fonts-changed'))
+
+  const register = async () => {
+    setBusy(true)
+    try {
+      const added = await window.api.fonts.register()
+      if (!added) return
+      await load()
+      notify()
+      toast(`${added.label} 폰트를 등록했어요.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (f) => {
+    if (!window.confirm(`${f.label} 폰트를 삭제할까요?`)) return
+    await window.api.fonts.remove(f.id)
+    await load()
+    notify()
+    toast('폰트를 삭제했어요.')
+  }
+
+  return (
+    <Card className="p-6 flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Icon name="spark" className="w-[18px] h-[18px] text-[var(--accent)]" />
+            <h2 className="text-[16px] font-bold text-[var(--ink)]">폰트 라이브러리</h2>
+          </div>
+          <p className="text-[12px] text-[var(--muted)] leading-relaxed">
+            TTF·OTF 파일을 등록하면 모든 채널의 문구·워터마크에서 선택할 수 있어요. 이모지가 있는 문구도 함께 그려집니다.
+          </p>
+        </div>
+        <Button size="sm" disabled={busy} onClick={register}>폰트 등록</Button>
+      </div>
+      {fonts.length === 0 && (
+        <p className="text-[13px] text-[var(--muted)]">아직 등록한 폰트가 없어요. 브랜드 폰트를 올려 보세요.</p>
+      )}
+      <div className="flex flex-col gap-2">
+        {fonts.map((f) => (
+          <div key={f.id} className="flex items-center gap-3 rounded-xl border border-[var(--line)] px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13.5px] font-semibold text-[var(--ink)] truncate">{f.label}</p>
+              <p
+                className="text-[15px] text-[var(--muted)] truncate mt-0.5"
+                style={{ fontFamily: `"${f.cssFamily}", "Apple Color Emoji", sans-serif` }}
+              >
+                가나다 ABC 123 ☕✨
+              </p>
+            </div>
+            <Button variant="soft" size="sm" onClick={() => remove(f)}>삭제</Button>
+          </div>
+        ))}
+      </div>
+    </Card>
   )
 }
 

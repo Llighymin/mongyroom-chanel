@@ -45,10 +45,11 @@ export class ProbeEngine extends BaseEngine {
         const height = Number(stream.height)
         const duration = pickDuration(stream.duration, info?.format?.duration)
         if (width > 0 && height > 0) {
+          const hasAudio = await detectAudio(probeBin, sourcePath)
           this.progress(100, '영상 정보를 확인했어요.', {
             detail: duration ? `${width}×${height} · ${duration.toFixed(1)}초` : `${width}×${height}`
           })
-          return { width, height, duration }
+          return { width, height, duration, hasAudio }
         }
       } catch {
         /* csv 방식으로 한 번 더 */
@@ -61,8 +62,9 @@ export class ProbeEngine extends BaseEngine {
       )
       const m = String(stdout).trim().match(/(\d+)x(\d+)/)
       if (m) {
+        const hasAudio = await detectAudio(probeBin, sourcePath)
         this.progress(100, '영상 정보를 확인했어요.', { detail: `${m[1]}×${m[2]}` })
-        return { width: Number(m[1]), height: Number(m[2]), duration: 0 }
+        return { width: Number(m[1]), height: Number(m[2]), duration: 0, hasAudio }
       }
     }
 
@@ -79,11 +81,24 @@ export class ProbeEngine extends BaseEngine {
       }
       if (m) {
         this.progress(100, '영상 정보를 확인했어요.', { detail: `${m[1]}×${m[2]}` })
-        return { width: Number(m[1]), height: Number(m[2]), duration }
+        return { width: Number(m[1]), height: Number(m[2]), duration, hasAudio: /Audio:/i.test(text) }
       }
     }
 
     throw new Error('영상 가로·세로를 읽지 못했어요.')
+  }
+}
+
+async function detectAudio(probeBin, sourcePath) {
+  try {
+    const { stdout } = await execFileAsync(
+      probeBin,
+      ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', sourcePath],
+      { timeout: 15000 }
+    )
+    return String(stdout || '').trim().length > 0
+  } catch {
+    return false
   }
 }
 

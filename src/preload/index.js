@@ -62,6 +62,11 @@ const api = {
   assets: {
     pickWatermark: (wsId) => ipcRenderer.invoke('assets:pickWatermark', wsId)
   },
+  fonts: {
+    list: () => ipcRenderer.invoke('fonts:list'),
+    register: () => ipcRenderer.invoke('fonts:register'),
+    remove: (id) => ipcRenderer.invoke('fonts:remove', id)
+  },
   theme: {
     get: () => ipcRenderer.invoke('theme:get')
   }

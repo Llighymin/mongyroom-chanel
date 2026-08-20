@@ -29,7 +29,8 @@ export function installMockApi() {
         fill_color: '#000000',
         crop: { x: 0, y: 0, w: 1, h: 1 },
         watermark: { on: true, kind: 'text', text: '홈카페', position: 'bottom-center', px: 0.5, py: 0.92 },
-        texts: []
+        texts: [],
+        images: []
       },
       created_at: '2026-08-03'
     }
@@ -94,7 +95,8 @@ export function installMockApi() {
       source_ready: !!job.source_path || job.stage === 'edit' || job.stage === 'failed' || canPreview,
       source_url: SAMPLE,
       thumb_url: null,
-      watermark_preview_url: null
+      watermark_preview_url: null,
+      overlay_preview_urls: {}
     }
   }
 
@@ -122,7 +124,8 @@ export function installMockApi() {
             fill_color: '#000000',
             crop: { x: 0, y: 0, w: 1, h: 1 },
             watermark: { on: true, kind: 'text', text: wsName, position: 'bottom-center', px: 0.5, py: 0.92 },
-            texts: []
+            texts: [],
+            images: []
           },
           created_at: '오늘'
         }
@@ -436,8 +439,13 @@ export function installMockApi() {
         path: '/mock/wm.png',
         name: 'logo.png',
         filename: 'logo.png',
-        url: 'https://placehold.co/200x80/png?text=WM'
+        url: 'https://placehold.co/200x80/png?text=IMG'
       })
+    },
+    fonts: {
+      list: () => delay([]),
+      register: () => delay(null),
+      remove: () => delay(true)
     },
     theme: { get: () => delay('light') }
   }

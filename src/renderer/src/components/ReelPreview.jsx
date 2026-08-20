@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
-import { fontCss, weightCss } from '@shared/editOptions.js'
+import { fontCss, weightCss, clampTracking } from '@shared/editOptions.js'
 
 const PREVIEW_W = 216
 const PREVIEW_H = 384
@@ -25,11 +25,13 @@ function textStyle(layer, scale, fit = 1) {
   const stroke = layer.stroke !== false
   const shadow = layer.shadow !== false
   const fontSize = Math.max(8, (layer.size || 36) * scale * fit)
+  const tracking = clampTracking(layer.tracking, 0)
   return {
     color: layer.color || '#fff',
     fontSize,
     fontFamily: fontCss(layer.font),
     fontWeight: weightCss(layer.weight),
+    letterSpacing: `${tracking * fontSize}px`,
     textAlign: 'center',
     whiteSpace: 'nowrap',
     WebkitTextStroke: stroke ? '0.7px rgba(0,0,0,0.55)' : '0',
@@ -93,7 +95,7 @@ function PreviewTextLayer({
       return
     }
     setFit(Math.min(1, boxPx / natural))
-  }, [layer.text, layer.size, layer.font, layer.weight, boxPx])
+  }, [layer.text, layer.size, layer.font, layer.weight, layer.tracking, boxPx])
 
   return (
     <div
@@ -145,6 +147,7 @@ export default function ReelPreview({
   opts,
   thumbUrl,
   wmImageUrl,
+  overlayUrls,
   sourceSize,
   selectedId,
   disabled,
@@ -237,7 +240,7 @@ export default function ReelPreview({
     <div className="flex flex-col gap-2">
       <p className="text-[13px] font-bold text-[var(--ink)]">실시간 미리보기</p>
       <p className="text-[12px] text-[var(--muted)] leading-relaxed">
-        문구는 한 줄로 표시됩니다. 선택 후 좌·우 핸들을 끌어 영역 너비를 조절하세요.
+        문구는 한 줄입니다. 이모지를 넣을 수 있고, 선택 후 좌·우 핸들로 영역 너비를 조절하세요.
       </p>
       <div
         ref={wrapRef}
@@ -300,6 +303,27 @@ export default function ReelPreview({
             disabled={disabled}
             onPointerDown={(e) => onPointerDown(e, t.id)}
             onResizeDown={(e, side) => onResizePointerDown(e, t.id, t.boxW, side)}
+          />
+        ))}
+
+        {(opts.images || []).map((im) => (
+          <img
+            key={im.id}
+            alt=""
+            src={(overlayUrls && overlayUrls[im.id]) || ''}
+            draggable={false}
+            onPointerDown={(e) => onPointerDown(e, im.id)}
+            className={`absolute select-none ${
+              selectedId === im.id ? 'outline outline-2 outline-[var(--accent)] outline-offset-2' : ''
+            }`}
+            style={{
+              left: `${(im.x || 0.5) * 100}%`,
+              top: `${(im.y || 0.5) * 100}%`,
+              width: `${(im.scale || 0.28) * 100}%`,
+              transform: 'translate(-50%, -50%)',
+              cursor: disabled ? 'default' : 'grab',
+              objectFit: 'contain'
+            }}
           />
         ))}
 

@@ -5,7 +5,7 @@ import {
   getJob, updateJob, getReference, updateReference, cancelJob as cancelJobDb, getWorkspace, getAccount
 } from '../db.js'
 import { mediaUrlFor, previewFileExists, previewFileMtime } from '../mediaProtocol.js'
-import { assetUrlFor, resolveWatermarkImagePath } from '../assets.js'
+import { assetUrlFor, resolveWatermarkImagePath, overlayPreviewMap } from '../assets.js'
 import { resolveEditOptions } from '../../shared/editOptions.js'
 import { getSecret } from '../secrets.js'
 import {
@@ -74,7 +74,8 @@ export function enrichJob(job) {
     thumb_url: previewFileExists(job.id, 'thumb.jpg')
       ? mediaUrlFor(job.id, 'thumb.jpg', previewFileMtime(job.id, 'thumb.jpg'))
       : null,
-    watermark_preview_url
+    watermark_preview_url,
+    overlay_preview_urls: overlayPreviewMap(job.workspace_id, job.edit_options?.images)
   }
 }
 
@@ -91,6 +92,7 @@ function makeTasks(defs) {
 function buildEditTasks(opts, { skipDownload = false } = {}) {
   const wmOn = !!opts?.watermark?.on
   const textsOn = Array.isArray(opts?.texts) && opts.texts.length > 0
+  const imagesOn = Array.isArray(opts?.images) && opts.images.length > 0
   return makeTasks([
     { id: 'tools', label: '편집 도구 확인 (yt-dlp · ffmpeg)' },
     skipDownload
@@ -103,6 +105,9 @@ function buildEditTasks(opts, { skipDownload = false } = {}) {
     textsOn
       ? { id: 'texts', label: '추가 문구 넣기' }
       : { id: 'texts', label: '추가 문구 넣기', status: 'skipped', detail: '없음' },
+    imagesOn
+      ? { id: 'images', label: '이미지 넣기' }
+      : { id: 'images', label: '이미지 넣기', status: 'skipped', detail: '없음' },
     { id: 'save', label: '릴스용 파일 저장' }
   ])
 }
@@ -238,6 +243,14 @@ export async function startEdit(jobId, editOptions = {}) {
     opts.watermark.image_path = resolved
     opts.watermark.image_file = basename(resolved)
   }
+  for (const im of opts.images || []) {
+    const resolved = resolveWatermarkImagePath(job.workspace_id, im)
+    if (!resolved) {
+      throw new Error(`이미지 레이어를 찾지 못했어요${im.image_name ? ` (${im.image_name})` : ''}. 다시 올려 주세요.`)
+    }
+    im.image_path = resolved
+    im.image_file = basename(resolved)
+  }
   const hasSource = !!(job.source_path && existsSync(job.source_path))
 
   const ac = new AbortController()
@@ -325,6 +338,9 @@ export async function startEdit(jobId, editOptions = {}) {
     if (opts.texts.length) {
       await setActivity(jobId, 'texts', 'running', `${opts.texts.length}개`)
     }
+    if (opts.images.length) {
+      await setActivity(jobId, 'images', 'running', `${opts.images.length}개`)
+    }
 
     const { outputPath } = await reelConvertEngine.run(
       {
@@ -363,6 +379,9 @@ export async function startEdit(jobId, editOptions = {}) {
     }
     if (opts.texts.length) {
       await setActivity(jobId, 'texts', 'done', `${opts.texts.length}개`)
+    }
+    if (opts.images.length) {
+      await setActivity(jobId, 'images', 'done', `${opts.images.length}개`)
     }
 
     const done = await setActivity(jobId, 'save', 'done', 'output.mp4', {

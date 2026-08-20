@@ -9,15 +9,75 @@ export const FILL_PRESETS = [
   { id: 'cream', label: '크림', value: '#F4EFE6' }
 ]
 
+const EMOJI_STACK = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"'
+
 export const FONT_OPTIONS = [
   { id: 'apple-sd', label: '애플 SD 고딕', css: '"Apple SD Gothic Neo", "AppleGothic", sans-serif', mac: 'Apple SD Gothic Neo' },
   { id: 'system', label: '시스템', css: '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif', mac: null },
-  { id: 'helvetica', label: 'Helvetica', css: '"Helvetica Neue", Helvetica, sans-serif', mac: 'Helvetica Neue' },
+  { id: 'helvetica', label: 'Helvetica Neue', css: '"Helvetica Neue", Helvetica, sans-serif', mac: 'Helvetica Neue' },
   { id: 'arial', label: 'Arial', css: 'Arial, Helvetica, sans-serif', mac: 'Arial' },
+  { id: 'verdana', label: 'Verdana', css: 'Verdana, Geneva, sans-serif', mac: 'Verdana' },
+  { id: 'avenir', label: 'Avenir', css: 'Avenir, "Avenir Next", sans-serif', mac: 'Avenir' },
+  { id: 'avenir-next', label: 'Avenir Next', css: '"Avenir Next", Avenir, sans-serif', mac: 'Avenir Next' },
+  { id: 'futura', label: 'Futura', css: 'Futura, sans-serif', mac: 'Futura' },
+  { id: 'gill-sans', label: 'Gill Sans', css: '"Gill Sans", sans-serif', mac: 'Gill Sans' },
+  { id: 'optima', label: 'Optima', css: 'Optima, sans-serif', mac: 'Optima' },
+  { id: 'hiragino-sans', label: '히라기노 산스', css: '"Hiragino Sans", sans-serif', mac: 'Hiragino Sans' },
   { id: 'georgia', label: 'Georgia', css: 'Georgia, "Times New Roman", serif', mac: 'Georgia' },
+  { id: 'times', label: 'Times New Roman', css: '"Times New Roman", Times, serif', mac: 'Times New Roman' },
+  { id: 'palatino', label: 'Palatino', css: 'Palatino, "Palatino Linotype", serif', mac: 'Palatino' },
+  { id: 'baskerville', label: 'Baskerville', css: 'Baskerville, serif', mac: 'Baskerville' },
+  { id: 'didot', label: 'Didot', css: 'Didot, serif', mac: 'Didot' },
+  { id: 'american-typewriter', label: 'American Typewriter', css: '"American Typewriter", serif', mac: 'American Typewriter' },
+  { id: 'hiragino-mincho', label: '히라기노 명조', css: '"Hiragino Mincho ProN", serif', mac: 'Hiragino Mincho ProN' },
   { id: 'menlo', label: 'Menlo', css: 'Menlo, Monaco, monospace', mac: 'Menlo' },
-  { id: 'impact', label: 'Impact', css: 'Impact, Haettenschweiler, sans-serif', mac: 'Impact' }
+  { id: 'monaco', label: 'Monaco', css: 'Monaco, monospace', mac: 'Monaco' },
+  { id: 'courier', label: 'Courier', css: '"Courier New", Courier, monospace', mac: 'Courier' },
+  { id: 'impact', label: 'Impact', css: 'Impact, Haettenschweiler, sans-serif', mac: 'Impact' },
+  { id: 'copperplate', label: 'Copperplate', css: 'Copperplate, sans-serif', mac: 'Copperplate' },
+  { id: 'noteworthy', label: 'Noteworthy', css: 'Noteworthy, sans-serif', mac: 'Noteworthy' },
+  { id: 'marker-felt', label: 'Marker Felt', css: '"Marker Felt", cursive', mac: 'Marker Felt' },
+  { id: 'chalkboard', label: 'Chalkboard', css: '"Chalkboard SE", Chalkboard, sans-serif', mac: 'Chalkboard SE' }
 ]
+
+/** 앱 설정에서 등록한 커스텀 폰트 (렌더러에서 setCustomFonts로 주입) */
+let customFonts = []
+
+export function setCustomFonts(list) {
+  customFonts = Array.isArray(list) ? list.filter((f) => f && f.id) : []
+}
+
+export function getCustomFonts() {
+  return customFonts
+}
+
+export function isCustomFontId(id) {
+  return String(id || '').startsWith('cf:')
+}
+
+export function allFontOptions() {
+  const extras = customFonts.map((f) => ({
+    id: f.id,
+    label: f.label || '사용자 폰트',
+    css: `"${f.cssFamily}", sans-serif`,
+    mac: f.postscriptName || '',
+    custom: true
+  }))
+  return [...FONT_OPTIONS, ...extras]
+}
+
+export function normalizeFontId(id, fallback = 'apple-sd') {
+  const s = String(id || '').trim()
+  if (!s) return fallback
+  if (FONT_OPTIONS.some((f) => f.id === s) || isCustomFontId(s)) return s
+  return fallback
+}
+
+export function clampTracking(v, fallback = 0) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(0.4, Math.max(-0.12, n))
+}
 
 export const WEIGHT_OPTIONS = [
   { id: 'thin', label: '가늘게 (100)', css: 100 },
@@ -55,7 +115,10 @@ export function weightCss(value) {
 }
 
 export function fontCss(id) {
-  return FONT_OPTIONS.find((f) => f.id === id)?.css || FONT_OPTIONS[0].css
+  const custom = customFonts.find((f) => f.id === id)
+  if (custom?.cssFamily) return `"${custom.cssFamily}", ${EMOJI_STACK}, sans-serif`
+  const found = FONT_OPTIONS.find((f) => f.id === id)
+  return `${found?.css || FONT_OPTIONS[0].css}, ${EMOJI_STACK}`
 }
 
 export function weightLabel(value) {
@@ -99,16 +162,20 @@ export function defaultEditOptions(workspaceName = 'Studio') {
       align: 'center',
       color: '#FFFFFF',
       weight: 'semibold',
+      tracking: 0,
       shadow: true,
       stroke: true
     },
-    texts: []
+    texts: [],
+    images: []
   }
 }
 
-/** 줄바꿈·연속 공백을 한 줄 문구로 정리 */
-export function singleLineText(value, maxLen = 120) {
-  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLen)
+/** 줄바꿈·연속 공백을 한 줄 문구로 정리 (이모지·ZWJ 시퀀스는 유지) */
+export function singleLineText(value, maxLen = 160) {
+  return Array.from(String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim())
+    .slice(0, maxLen)
+    .join('')
 }
 
 export function clampBoxW(v, fallback = 0.88) {
@@ -165,7 +232,7 @@ export function normalizeEditOptions(raw = {}, workspaceName = 'Studio') {
   const watermark = {
     on: legacyOn !== undefined ? !!legacyOn : base.watermark.on,
     kind: wmIn.kind === 'image' ? 'image' : 'text',
-    text: String(wmIn.text || raw.watermark_text || base.watermark.text).slice(0, 80),
+    text: singleLineText(wmIn.text || raw.watermark_text || base.watermark.text, 80),
     image_path: imagePath,
     image_name: String(wmIn.image_name || ''),
     image_file: imageFile,
@@ -174,10 +241,11 @@ export function normalizeEditOptions(raw = {}, workspaceName = 'Studio') {
     py: clamp01(wmIn.py, pos.py),
     scale: Math.min(0.8, Math.max(0.06, Number(wmIn.scale) || base.watermark.scale)),
     size: Math.min(96, Math.max(16, Number(wmIn.size) || base.watermark.size)),
-    font: FONT_OPTIONS.some((f) => f.id === wmIn.font) ? wmIn.font : base.watermark.font,
+    font: normalizeFontId(wmIn.font, base.watermark.font),
     align: 'center',
     color: hexColor(wmIn.color, base.watermark.color),
     weight: normalizeWeight(wmIn.weight, 600),
+    tracking: clampTracking(wmIn.tracking, 0),
     shadow: wmIn.shadow !== false,
     stroke: wmIn.stroke !== false
   }
@@ -197,13 +265,21 @@ export function normalizeEditOptions(raw = {}, workspaceName = 'Studio') {
           size: Math.min(96, Math.max(16, Number(t?.size) || 36)),
           boxW: clampBoxW(t?.boxW),
           color: hexColor(t?.color, '#FFFFFF'),
-          font: FONT_OPTIONS.some((f) => f.id === t?.font) ? t.font : 'apple-sd',
+          font: normalizeFontId(t?.font, 'apple-sd'),
           align: 'center',
           weight: normalizeWeight(t?.weight, 800),
+          tracking: clampTracking(t?.tracking, 0),
           shadow: t?.shadow !== false,
           stroke: t?.stroke !== false
         }))
         .filter((t) => t.text.trim())
+        .slice(0, 8)
+    : []
+
+  const images = Array.isArray(raw.images)
+    ? raw.images
+        .map((im, i) => normalizeImageLayer(im, i))
+        .filter((im) => im.image_file || im.image_path)
         .slice(0, 8)
     : []
 
@@ -212,7 +288,22 @@ export function normalizeEditOptions(raw = {}, workspaceName = 'Studio') {
     fill_color: hexColor(raw.fill_color, base.fill_color),
     crop: clampCrop(raw.crop || base.crop),
     watermark,
-    texts
+    texts,
+    images
+  }
+}
+
+function normalizeImageLayer(im = {}, index = 0) {
+  const imagePath = String(im.image_path || '')
+  const imageFile = basenamePath(im.image_file) || basenamePath(imagePath)
+  return {
+    id: String(im.id || `img${index + 1}`),
+    image_path: imagePath,
+    image_file: imageFile,
+    image_name: String(im.image_name || ''),
+    x: clamp01(im.x, 0.5),
+    y: clamp01(im.y, 0.28 + index * 0.12),
+    scale: Math.min(0.8, Math.max(0.06, Number(im.scale) || 0.28))
   }
 }
 
@@ -224,6 +315,7 @@ export function presetPayload(opts) {
     crop: n.crop,
     watermark: { ...n.watermark },
     texts: n.texts,
+    images: n.images,
     share_to_feed: n.share_to_feed
   }
 }
@@ -249,6 +341,7 @@ export function resolveEditOptions(raw = {}, workspace = {}) {
       fill_color: rawObj.fill_color ?? channelDefaults.fill_color,
       share_to_feed: rawObj.share_to_feed ?? channelDefaults.share_to_feed,
       texts: Array.isArray(rawObj.texts) ? rawObj.texts : channelDefaults.texts,
+      images: Array.isArray(rawObj.images) ? rawObj.images : channelDefaults.images,
       watermark: rawWm
         ? { ...channelDefaults.watermark, ...rawWm }
         : channelDefaults.watermark
@@ -313,7 +406,20 @@ export function newTextLayer(index = 0) {
     font: 'apple-sd',
     align: 'center',
     weight: 800,
+    tracking: 0,
     shadow: true,
     stroke: true
+  }
+}
+
+export function newImageLayer(index = 0, file = {}) {
+  return {
+    id: `img${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    image_path: String(file.path || ''),
+    image_file: String(file.filename || ''),
+    image_name: String(file.name || ''),
+    x: 0.5,
+    y: Math.min(0.82, 0.28 + index * 0.12),
+    scale: 0.28
   }
 }

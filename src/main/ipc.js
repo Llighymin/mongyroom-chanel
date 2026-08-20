@@ -10,6 +10,7 @@ import { setSecret, clearSecret, hasSecret, getSecret } from './secrets.js'
 import { toolsStatus } from './tools.js'
 import { enrichJob, startEdit, publishJob, cancelRunningJob, prepareSource } from './pipeline/runner.js'
 import { pickAndStoreImage } from './assets.js'
+import { listCustomFonts, registerCustomFont, removeCustomFont } from './fonts.js'
 import { presetPayload } from '../shared/editOptions.js'
 import {
   referenceCollectEngine,
@@ -207,7 +208,10 @@ export function registerIpc() {
     return createEditPreset(wsId, name, presetPayload(options || {}))
   })
   ipcMain.handle('presets:delete', (_e, id) => deleteEditPreset(id))
-  ipcMain.handle('assets:pickWatermark', (_e, wsId) => pickAndStoreImage(wsId))
+  ipcMain.handle('assets:pickWatermark', (_e, wsId) => pickAndStoreImage(wsId, { title: '이미지 선택' }))
+  ipcMain.handle('fonts:list', () => listCustomFonts())
+  ipcMain.handle('fonts:register', () => registerCustomFont())
+  ipcMain.handle('fonts:remove', (_e, id) => removeCustomFont(id))
   ipcMain.handle('jobs:publish', async (_e, id, payload) => {
     try {
       return { ok: true, job: await publishJob(id, payload || {}) }

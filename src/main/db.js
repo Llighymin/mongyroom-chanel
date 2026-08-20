@@ -4,7 +4,7 @@ import { existsSync, statSync } from 'fs'
 import Database from 'better-sqlite3'
 import { defaultEditOptions, normalizeEditOptions } from '../shared/editOptions.js'
 import { normalizeReferenceSources } from '../shared/referenceSources.js'
-import { assetUrlFor, resolveWatermarkImagePath } from './assets.js'
+import { assetUrlFor, resolveWatermarkImagePath, overlayPreviewMap } from './assets.js'
 
 let db
 
@@ -165,7 +165,8 @@ function mapWorkspace(r) {
     keywords: safeParse(r.keywords),
     reference_sources: normalizeReferenceSources(safeParse(r.reference_sources)),
     default_edit_options,
-    watermark_preview_url
+    watermark_preview_url,
+    overlay_preview_urls: overlayPreviewMap(r.id, default_edit_options.images)
   }
 }
 

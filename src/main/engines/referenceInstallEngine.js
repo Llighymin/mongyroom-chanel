@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, existsSync } from 'fs'
 import { join } from 'path'
-import { resolveTools } from '../tools.js'
+import { resolveTools, ytdlpMergeOptions } from '../tools.js'
 import { jobDir } from '../mediaProtocol.js'
 import { BaseEngine } from './base.js'
 
@@ -18,9 +18,12 @@ export class ReferenceInstallEngine extends BaseEngine {
    * @returns {Promise<{ sourcePath: string }>}
    */
   async execute({ jobId, url }) {
-    const { ytdlp } = resolveTools()
+    const { ytdlp, ffmpeg } = resolveTools()
     if (!ytdlp) {
       throw new Error('yt-dlp가 설치되어 있지 않아요. brew install yt-dlp 후 다시 시도해 주세요.')
+    }
+    if (!ffmpeg) {
+      throw new Error('ffmpeg가 설치되어 있지 않아요. 영상과 소리를 합치려면 필요해요. brew install ffmpeg 후 다시 시도해 주세요.')
     }
     if (!url || typeof url !== 'string') {
       throw new Error('영상 주소가 없어요.')
@@ -29,6 +32,7 @@ export class ReferenceInstallEngine extends BaseEngine {
     const dir = jobDir(jobId)
     mkdirSync(dir, { recursive: true })
     const outTemplate = join(dir, 'source.%(ext)s')
+    const merge = ytdlpMergeOptions()
 
     this.progress(2, '영상을 내려받는 중이에요…', { detail: '연결 중' })
 
@@ -37,7 +41,9 @@ export class ReferenceInstallEngine extends BaseEngine {
       '-o', outTemplate,
       '--no-playlist',
       '--newline',
-      '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
+      ...merge.args,
+      // 비디오 전용 mp4로 떨어지지 않게, 반드시 영상+소리를 합친다
+      '-f', 'bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b',
       '--merge-output-format', 'mp4',
       '--restrict-filenames',
       '--no-warnings'
@@ -53,6 +59,7 @@ export class ReferenceInstallEngine extends BaseEngine {
     }
 
     const { code, stderr } = await this.spawnTracked(ytdlp, args, {
+      env: merge.env,
       onStdout: (line) => {
         const m = line.match(/(\d+(?:\.\d+)?)%/)
         if (m) reportPct(m[1])

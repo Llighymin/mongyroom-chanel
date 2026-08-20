@@ -4,14 +4,17 @@ import ReelPreview from './ReelPreview.jsx'
 import {
   FILL_PRESETS,
   WATERMARK_POSITIONS,
-  FONT_OPTIONS,
+  allFontOptions,
+  setCustomFonts,
   normalizeWeight,
   weightLabel,
   singleLineText,
   clampBoxW,
+  clampTracking,
   resolveEditOptions,
   channelWatermarkImage,
-  newTextLayer
+  newTextLayer,
+  newImageLayer
 } from '@shared/editOptions.js'
 
 function getVideoBox(video) {
@@ -171,12 +174,14 @@ function CropPicker({ src, crop, disabled, onChange, onFrame, onSize }) {
   )
 }
 
-function StyleBar({ font, size, color, weight, shadow, stroke, boxW, disabled, onChange, defaultWeight = 700 }) {
+function StyleBar({ font, size, color, weight, tracking, shadow, stroke, boxW, disabled, onChange, defaultWeight = 700, fontOptions }) {
   const chip = (on) =>
     on
       ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
       : 'border-[var(--line)]'
   const weightValue = normalizeWeight(weight, defaultWeight)
+  const trackingValue = clampTracking(tracking, 0)
+  const fonts = fontOptions?.length ? fontOptions : allFontOptions()
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2 items-end">
@@ -187,8 +192,8 @@ function StyleBar({ font, size, color, weight, shadow, stroke, boxW, disabled, o
             onChange={(e) => onChange({ font: e.target.value })}
             className="no-drag bg-[var(--paper)] border border-[var(--line)] rounded-[10px] px-2.5 py-2 text-sm text-[var(--ink)]"
           >
-            {FONT_OPTIONS.map((f) => (
-              <option key={f.id} value={f.id}>{f.label}</option>
+            {fonts.map((f) => (
+              <option key={f.id} value={f.id}>{f.custom ? `${f.label} (등록)` : f.label}</option>
             ))}
           </select>
         </Field>
@@ -237,6 +242,18 @@ function StyleBar({ font, size, color, weight, shadow, stroke, boxW, disabled, o
             />
           </Field>
         )}
+        <Field label={`자간 ${trackingValue === 0 ? '기본' : `${trackingValue > 0 ? '+' : ''}${Math.round(trackingValue * 100)}`}`}>
+          <input
+            type="range"
+            min="-12"
+            max="40"
+            step="1"
+            disabled={disabled}
+            value={Math.round(trackingValue * 100)}
+            className="no-drag w-32"
+            onChange={(e) => onChange({ tracking: Number(e.target.value) / 100 })}
+          />
+        </Field>
         <Field label="색">
           <input
             type="color"
@@ -306,6 +323,8 @@ export default function EditStudio({
   const [presetName, setPresetName] = useState('')
   const [localThumb, setLocalThumb] = useState(null)
   const [localWmUrl, setLocalWmUrl] = useState(null)
+  const [localOverlayUrls, setLocalOverlayUrls] = useState({})
+  const [fontOptions, setFontOptions] = useState(allFontOptions())
   const [sourceSize, setSourceSize] = useState({ w: 16, h: 9 })
   const [selectedId, setSelectedId] = useState(null)
   const toastName = workspace?.name || 'Studio'
@@ -315,9 +334,24 @@ export default function EditStudio({
     setPresets(await window.api.presets.list(workspace.id))
   }
 
+  const refreshFonts = async () => {
+    if (!window.api?.fonts?.list) {
+      setFontOptions(allFontOptions())
+      return
+    }
+    const list = await window.api.fonts.list()
+    setCustomFonts(list || [])
+    setFontOptions(allFontOptions())
+  }
+
   useEffect(() => {
     loadPresets()
+    refreshFonts()
     setLocalWmUrl(null)
+    setLocalOverlayUrls({})
+    const onFonts = () => refreshFonts()
+    window.addEventListener('studio-fonts-changed', onFonts)
+    return () => window.removeEventListener('studio-fonts-changed', onFonts)
   }, [workspace.id])
 
   const setCrop = (crop) => setOpts({ ...opts, crop: { ...opts.crop, ...crop } })
@@ -325,6 +359,7 @@ export default function EditStudio({
 
   const applyPreset = (p) => {
     setLocalWmUrl(null)
+    setLocalOverlayUrls({})
     setOpts(resolveEditOptions(p.options || {}, workspace))
   }
 
@@ -357,6 +392,8 @@ export default function EditStudio({
   const fill = opts.fill_color || '#000000'
   const thumbUrl = job?.thumb_url || localThumb
   const texts = opts.texts || []
+  const images = opts.images || []
+  const overlayUrls = { ...(workspace?.overlay_preview_urls || {}), ...(job?.overlay_preview_urls || {}), ...localOverlayUrls }
 
   const patchText = (id, patch) => {
     setOpts({
@@ -365,11 +402,28 @@ export default function EditStudio({
     })
   }
 
+  const patchImage = (id, patch) => {
+    setOpts({
+      ...opts,
+      images: images.map((x) => (x.id === id ? { ...x, ...patch } : x))
+    })
+  }
+
   const resizeText = (id, boxW) => patchText(id, { boxW })
 
   const moveLayer = (id, x, y) => {
     if (id === 'watermark') setWm({ px: x, py: y, position: 'custom' })
+    else if (images.some((im) => im.id === id)) patchImage(id, { x, y })
     else patchText(id, { x, y })
+  }
+
+  const addOverlayImage = async () => {
+    const file = await window.api.assets.pickWatermark(workspace.id)
+    if (!file) return
+    const layer = newImageLayer(images.length, file)
+    setOpts({ ...opts, images: [...images, layer] })
+    setLocalOverlayUrls((m) => ({ ...m, [layer.id]: file.url }))
+    setSelectedId(layer.id)
   }
 
   return (
@@ -500,7 +554,7 @@ export default function EditStudio({
           </Button>
         </div>
         {texts.length === 0 && (
-          <p className="text-[12.5px] text-[var(--muted)]">워터마크 외에 제목·해시태그 등을 더 올릴 수 있어요.</p>
+          <p className="text-[12.5px] text-[var(--muted)]">워터마크 외에 제목·해시태그·이모지를 더 올릴 수 있어요.</p>
         )}
         {texts.map((t) => (
           <div
@@ -534,13 +588,73 @@ export default function EditStudio({
               size={t.size}
               color={t.color}
               weight={t.weight}
+              tracking={t.tracking}
               boxW={t.boxW}
               shadow={t.shadow}
               stroke={t.stroke}
               disabled={disabled}
               defaultWeight={800}
+              fontOptions={fontOptions}
               onChange={(patch) => patchText(t.id, patch)}
             />
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h4 className="text-[14px] font-bold text-[var(--ink)]">3-2. 영상에 넣을 이미지</h4>
+          <Button
+            variant="soft"
+            size="sm"
+            disabled={disabled || images.length >= 8}
+            onClick={addOverlayImage}
+          >
+            이미지 추가
+          </Button>
+        </div>
+        {images.length === 0 && (
+          <p className="text-[12.5px] text-[var(--muted)]">로고·스티커·컷아웃 PNG를 올려 미리보기에서 위치를 잡을 수 있어요.</p>
+        )}
+        {images.map((im) => (
+          <div
+            key={im.id}
+            className={`rounded-xl border p-3 flex flex-col gap-2 ${
+              selectedId === im.id ? 'border-[var(--accent)]' : 'border-[var(--line)]'
+            }`}
+            onClick={() => setSelectedId(im.id)}
+          >
+            <div className="flex items-center gap-3">
+              {overlayUrls[im.id] ? (
+                <img src={overlayUrls[im.id]} alt="" className="h-12 max-w-[96px] object-contain rounded bg-[var(--surface-2)]" />
+              ) : (
+                <div className="h-12 w-16 rounded bg-[var(--surface-2)]" />
+              )}
+              <p className="text-[13px] text-[var(--ink)] truncate flex-1">{im.image_name || '이미지'}</p>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={disabled}
+                onClick={() => {
+                  setOpts({ ...opts, images: images.filter((x) => x.id !== im.id) })
+                  if (selectedId === im.id) setSelectedId(null)
+                }}
+              >
+                삭제
+              </Button>
+            </div>
+            <Field label={`크기 ${Math.round((im.scale || 0.28) * 100)}%`}>
+              <input
+                type="range"
+                min="0.06"
+                max="0.8"
+                step="0.02"
+                disabled={disabled}
+                value={im.scale || 0.28}
+                className="no-drag w-40"
+                onChange={(e) => patchImage(im.id, { scale: Number(e.target.value) })}
+              />
+            </Field>
           </div>
         ))}
       </div>
@@ -617,10 +731,12 @@ export default function EditStudio({
                 size={opts.watermark.size}
                 color={opts.watermark.color}
                 weight={opts.watermark.weight}
+                tracking={opts.watermark.tracking}
                 shadow={opts.watermark.shadow}
                 stroke={opts.watermark.stroke}
                 disabled={disabled}
                 defaultWeight={600}
+                fontOptions={fontOptions}
                 onChange={(patch) => setWm(patch)}
               />
             )}
@@ -668,6 +784,7 @@ export default function EditStudio({
           opts={opts}
           thumbUrl={thumbUrl}
           wmImageUrl={wmPreview}
+          overlayUrls={overlayUrls}
           sourceSize={sourceSize}
           selectedId={selectedId}
           disabled={disabled}

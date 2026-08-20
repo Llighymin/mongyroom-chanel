@@ -3,6 +3,7 @@ import { createReadStream, existsSync, statSync } from 'fs'
 import { basename, join, normalize, relative, extname } from 'path'
 import { Readable } from 'stream'
 import { assetsRoot } from './assets.js'
+import { fontsRoot } from './fonts.js'
 
 const SCHEME = 'studio-media'
 
@@ -40,6 +41,9 @@ function mimeFor(filePath) {
   if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
   if (ext === '.png') return 'image/png'
   if (ext === '.webp') return 'image/webp'
+  if (ext === '.ttf' || ext === '.otf' || ext === '.ttc' || ext === '.otc') return 'font/ttf'
+  if (ext === '.woff') return 'font/woff'
+  if (ext === '.woff2') return 'font/woff2'
   return 'application/octet-stream'
 }
 
@@ -67,6 +71,18 @@ export function resolveMediaRequestUrl(requestUrl) {
     .split('/')
     .filter(Boolean)
   parts.push(...pathParts)
+
+  // studio-media://font/file.ttf
+  if (parts[0] === 'font') {
+    parts.shift()
+    if (!parts.length) return null
+    const file = basename(parts.join('/'))
+    const root = normalize(fontsRoot())
+    const filePath = normalize(join(root, file))
+    const rel = relative(root, filePath)
+    if (!rel || rel.startsWith('..') || rel.includes('..')) return null
+    return filePath
+  }
 
   // studio-media://asset/{wsId}/file.png
   if (parts[0] === 'asset') {

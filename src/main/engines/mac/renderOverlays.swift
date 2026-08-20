@@ -1,5 +1,6 @@
 #!/usr/bin/env swift
 import AppKit
+import CoreText
 import Foundation
 
 // args: <jsonPath> <out.png> [width] [height]
@@ -14,7 +15,6 @@ let outPath = args[2]
 let width = Int(args.count > 3 ? args[3] : "1080") ?? 1080
 let height = Int(args.count > 4 ? args[4] : "1920") ?? 1920
 
-/// CSS/레거시 문자열·숫자 weight를 Int(100~900)로 통일
 func parseWeight(_ raw: Any?) -> Int {
   if let n = raw as? Int { return min(900, max(100, n)) }
   if let n = raw as? Double { return min(900, max(100, Int(n.rounded()))) }
@@ -32,6 +32,12 @@ func parseWeight(_ raw: Any?) -> Int {
   return 700
 }
 
+func isEmojiScalar(_ u: Unicode.Scalar) -> Bool {
+  if u.properties.isEmojiPresentation { return true }
+  if u.properties.isEmoji && u.value > 0x238C { return true }
+  return false
+}
+
 struct Item: Decodable {
   let text: String
   let x: Double
@@ -39,14 +45,16 @@ struct Item: Decodable {
   let size: Double
   let color: String
   let font: String?
+  let fontPath: String?
   let align: String?
   let weight: Int
   let boxW: Double?
+  let tracking: Double?
   let shadow: Bool?
   let stroke: Bool?
 
   enum CodingKeys: String, CodingKey {
-    case text, x, y, size, color, font, align, weight, boxW, shadow, stroke
+    case text, x, y, size, color, font, fontPath, align, weight, boxW, tracking, shadow, stroke
   }
 
   init(from decoder: Decoder) throws {
@@ -57,8 +65,10 @@ struct Item: Decodable {
     size = try c.decode(Double.self, forKey: .size)
     color = try c.decode(String.self, forKey: .color)
     font = try c.decodeIfPresent(String.self, forKey: .font)
+    fontPath = try c.decodeIfPresent(String.self, forKey: .fontPath)
     align = try c.decodeIfPresent(String.self, forKey: .align)
     boxW = try c.decodeIfPresent(Double.self, forKey: .boxW)
+    tracking = try c.decodeIfPresent(Double.self, forKey: .tracking)
     shadow = try c.decodeIfPresent(Bool.self, forKey: .shadow)
     stroke = try c.decodeIfPresent(Bool.self, forKey: .stroke)
 
@@ -74,8 +84,16 @@ struct Item: Decodable {
   }
 }
 
+struct ImageItem: Decodable {
+  let path: String
+  let x: Double
+  let y: Double
+  let scale: Double
+}
+
 struct Payload: Decodable {
-  let items: [Item]
+  let items: [Item]?
+  let images: [ImageItem]?
 }
 
 let data: Data
@@ -141,60 +159,136 @@ func fontWeight(_ raw: Int) -> NSFont.Weight {
   }
 }
 
-func pickFont(name: String?, size: CGFloat, weight: Int) -> NSFont {
+func fontFromPath(_ path: String, size: CGFloat) -> NSFont? {
+  guard !path.isEmpty else { return nil }
+  let url = URL(fileURLWithPath: path)
+  CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+  guard let raw = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) else { return nil }
+  let descs = raw as! [CTFontDescriptor]
+  guard let desc = descs.first else { return nil }
+  return CTFontCreateWithFontDescriptor(desc, size, nil) as NSFont
+}
+
+func pickFont(name: String?, path: String?, size: CGFloat, weight: Int) -> NSFont {
   let w = fontWeight(weight)
-  if let name, !name.isEmpty, let base = NSFont(name: name, size: size) {
-    let desc = base.fontDescriptor.addingAttributes([
+  if let path, !path.isEmpty, let custom = fontFromPath(path, size: size) {
+    return custom
+  }
+  var base: NSFont
+  if let name, !name.isEmpty, let named = NSFont(name: name, size: size) {
+    let desc = named.fontDescriptor.addingAttributes([
       .traits: [NSFontDescriptor.TraitKey.weight: NSNumber(value: Double(w.rawValue))]
+    ])
+    base = NSFont(descriptor: desc, size: size) ?? named
+  } else {
+    base = NSFont.systemFont(ofSize: size, weight: w)
+  }
+  if let emoji = NSFont(name: "Apple Color Emoji", size: size) {
+    let desc = base.fontDescriptor.addingAttributes([
+      NSFontDescriptor.AttributeName(rawValue: kCTFontCascadeListAttribute as String): [emoji.fontDescriptor]
     ])
     return NSFont(descriptor: desc, size: size) ?? base
   }
-  return NSFont.systemFont(ofSize: size, weight: w)
+  return base
 }
 
-for item in payload.items {
-  let t = item.text.replacingOccurrences(of: "\n", with: " ")
+func buildAttr(
+  text: String,
+  font: NSFont,
+  color: NSColor,
+  tracking: CGFloat,
+  stroke: Bool,
+  shadow: Bool
+) -> NSAttributedString {
+  let paragraph = NSMutableParagraphStyle()
+  paragraph.alignment = .center
+  var shadowObj: NSShadow?
+  if shadow {
+    let sh = NSShadow()
+    sh.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.55)
+    sh.shadowBlurRadius = 3
+    sh.shadowOffset = NSSize(width: 0, height: -1)
+    shadowObj = sh
+  }
+  let emojiFont = NSFont(name: "Apple Color Emoji", size: font.pointSize) ?? font
+  let ns = text as NSString
+  let mas = NSMutableAttributedString()
+  var i = 0
+  while i < ns.length {
+    let range = ns.rangeOfComposedCharacterSequence(at: i)
+    let ch = ns.substring(with: range)
+    let emoji = ch.unicodeScalars.contains(where: isEmojiScalar)
+    var attrs: [NSAttributedString.Key: Any] = [
+      .font: emoji ? emojiFont : font,
+      .foregroundColor: color,
+      .paragraphStyle: paragraph,
+      .kern: tracking
+    ]
+    if let shadowObj { attrs[.shadow] = shadowObj }
+    if stroke && !emoji {
+      attrs[.strokeColor] = NSColor(calibratedWhite: 0, alpha: 0.55)
+      attrs[.strokeWidth] = -3.0
+    }
+    mas.append(NSAttributedString(string: ch, attributes: attrs))
+    i = range.location + range.length
+  }
+  return mas
+}
+
+for img in payload.images ?? [] {
+  guard FileManager.default.fileExists(atPath: img.path),
+        let nsImg = NSImage(contentsOfFile: img.path) else { continue }
+  let srcSize = nsImg.size
+  let srcH = max(1, srcSize.height)
+  let targetW = max(8, CGFloat(img.scale) * CGFloat(width))
+  let targetH = targetW * (srcH / max(1, srcSize.width))
+  let cx = CGFloat(img.x) * CGFloat(width)
+  let cyFromTop = CGFloat(img.y) * CGFloat(height)
+  let rect = NSRect(
+    x: cx - targetW / 2,
+    y: CGFloat(height) - cyFromTop - targetH / 2,
+    width: targetW,
+    height: targetH
+  )
+  nsImg.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+}
+
+for item in payload.items ?? [] {
+  let raw = item.text.replacingOccurrences(of: "\n", with: " ")
     .replacingOccurrences(of: "\r", with: " ")
-    .trimmingCharacters(in: .whitespacesAndNewlines) as NSString
-  if t.length == 0 { continue }
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+  if raw.isEmpty { continue }
   let maxW = CGFloat(item.boxW ?? 0.88) * CGFloat(width)
   var fontSize = CGFloat(max(14, item.size))
+  let trackingEm = CGFloat(item.tracking ?? 0)
+  let fg = color(from: item.color)
+  let wantStroke = item.stroke ?? true
+  let wantShadow = item.shadow ?? true
 
-  func makeAttrs(_ size: CGFloat) -> [NSAttributedString.Key: Any] {
-    let paragraph = NSMutableParagraphStyle()
-    paragraph.alignment = .center
-    var a: [NSAttributedString.Key: Any] = [
-      .font: pickFont(name: item.font, size: size, weight: item.weight),
-      .foregroundColor: color(from: item.color),
-      .paragraphStyle: paragraph
-    ]
-    if item.stroke ?? true {
-      a[.strokeColor] = NSColor(calibratedWhite: 0, alpha: 0.55)
-      a[.strokeWidth] = -3.0
-    }
-    if item.shadow ?? true {
-      let sh = NSShadow()
-      sh.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.55)
-      sh.shadowBlurRadius = 3
-      sh.shadowOffset = NSSize(width: 0, height: -1)
-      a[.shadow] = sh
-    }
-    return a
+  func make(_ size: CGFloat) -> NSAttributedString {
+    let font = pickFont(name: item.font, path: item.fontPath, size: size, weight: item.weight)
+    return buildAttr(
+      text: raw,
+      font: font,
+      color: fg,
+      tracking: trackingEm * size,
+      stroke: wantStroke,
+      shadow: wantShadow
+    )
   }
 
-  var attrs = makeAttrs(fontSize)
-  var size = t.size(withAttributes: attrs)
+  var attr = make(fontSize)
+  var size = attr.size()
   if size.width > maxW && size.width > 0 {
     fontSize = max(12, fontSize * (maxW / size.width))
-    attrs = makeAttrs(fontSize)
-    size = t.size(withAttributes: attrs)
+    attr = make(fontSize)
+    size = attr.size()
   }
   let cx = CGFloat(item.x) * CGFloat(width)
   let cyFromTop = CGFloat(item.y) * CGFloat(height)
   let x = cx - size.width / 2
-  // AppKit origin is bottom-left
   let y = CGFloat(height) - cyFromTop - size.height / 2
-  t.draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+  attr.draw(at: NSPoint(x: x, y: y))
 }
 
 NSGraphicsContext.restoreGraphicsState()
